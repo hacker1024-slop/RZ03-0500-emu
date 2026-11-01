@@ -108,7 +108,7 @@ usbip port
 sudo usbip detach -p 0
 ```
 
-Linux in QEMU has successfully enumerated this server with the private 1.1.1 image and bound all five HID interfaces, creating keyboard, mouse and hidraw devices. A version query through the guest HID driver also returned a valid Razer 00/87 reply reporting 1.1.1. A cold-boot library run driving encoder phases and the independent mute contact also delivered Linux `KEY_VOLUMEDOWN`, `KEY_VOLUMEUP` and `KEY_MUTE` press/release events through USB/IP. Normal matrix A-key reports are also verified through the in-process USB host; guest matrix-event verification is a separate check.
+Linux in QEMU has successfully enumerated this server with the private 1.1.1 image and bound all five HID interfaces, creating keyboard, mouse and hidraw devices. A version query through the guest HID driver also returned a valid Razer 00/87 reply reporting 1.1.1. A cold-boot library run driving encoder phases and the independent mute contact also delivered Linux `KEY_VOLUMEDOWN`, `KEY_VOLUMEUP` and `KEY_MUTE` press/release events through USB/IP. The same cold-boot path also delivers Linux `KEY_A` press/release from matrix contact (3, 1), alongside the media events. The complete application image remains unchanged.
 
 For a Windows QEMU guest, install a USB/IP client such as [usbip-win2](https://github.com/vadimgrn/usbip-win2) inside the guest, following its driver installation instructions. Its commands are `usbip.exe list -r 10.0.2.2` and `usbip.exe attach -r 10.0.2.2 -b 1-1`. Then inspect Device Manager and run Razer software in the guest. Windows and Synapse compatibility have **not** been verified. The bridge supports USB/IP 1.1.1 control transfers and interrupt IN, including STALL, short packets and queued-request cancellation; other transfer types are unsupported.
 
@@ -225,6 +225,6 @@ The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-
 1. Extend normal matrix-input validation to more bindings, chords, rollover and reset.
 2. Recover physical key/RGB wiring and encoder detent/direction mapping.
 3. Complete remaining peripheral and USB power-state behavior.
-4. Validate matrix events through a guest and full Razer software in a QEMU Windows guest. Linux USB/IP enumeration, media events and the original updater DLL’s version query under Wine already pass; full Windows/Synapse operation remains unverified.
+4. Validate device recognition and representative settings/lighting operations with Razer software in a QEMU Windows guest. Linux USB/IP matrix/media events and the original updater DLL’s version query under Wine pass; full Windows/Synapse operation remains unverified.
 
 MIT licensed. Third-party components retain their respective licenses.
