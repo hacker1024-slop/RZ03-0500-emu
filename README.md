@@ -150,7 +150,7 @@ sudo usbip detach -p 0
 
 Linux in QEMU has successfully enumerated this server with the private 1.1.1 image and bound all five HID interfaces, creating keyboard, mouse and hidraw devices. A version query through the guest HID driver also returned a valid Razer 00/87 reply reporting 1.1.1. A cold-boot library run driving encoder phases and the independent mute contact also delivered Linux `KEY_VOLUMEDOWN`, `KEY_VOLUMEUP` and `KEY_MUTE` press/release events through USB/IP. The same cold-boot path also delivers Linux `KEY_A` press/release from matrix contact (3, 1), alongside the media events. The complete application image remains unchanged.
 
-For a Windows QEMU guest, install a USB/IP client such as [usbip-win2](https://github.com/vadimgrn/usbip-win2) inside the guest, following its driver installation instructions. Its commands are `usbip.exe list -r 10.0.2.2` and `usbip.exe attach -r 10.0.2.2 -b 1-1`. Then inspect Device Manager and run Razer software in the guest. Windows and Synapse compatibility have **not** been verified. The bridge supports USB/IP 1.1.1 control transfers and interrupt IN, including STALL, short packets and queued-request cancellation; other transfer types are unsupported.
+For a Windows QEMU guest, install a USB/IP client such as [usbip-win2](https://github.com/vadimgrn/usbip-win2) inside the guest, following its driver installation instructions. Its commands are `usbip.exe list -r 10.0.2.2` and `usbip.exe attach -r 10.0.2.2 -b 1-1`. Then inspect Device Manager and run Razer software in the guest. Windows 11 Pro (build 26100), USB/IP client 0.9.8.1, all five HID interfaces, and the original Razer updater DLL’s version query are verified. Synapse recognition and representative settings/lighting operations remain **unverified**. The bridge supports USB/IP 1.1.1 control transfers and interrupt IN, including STALL, short packets and queued-request cancellation; other transfer types are unsupported.
 
 The reusable entry point is `razer_emu.usbip.UsbIpServer(keyboard, enumeration)`, followed by `await server.serve()`. Create and run it on the same thread that owns `Keyboard`. The asyncio transport advances virtual time while requests are pending or the imported device is idle; it does not synchronize virtual time to wall time. A contact held for a short virtual duration can therefore remain held long enough in guest wall time to trigger the OS auto-repeat timer. Control transfers use the bounded synchronous core API, so a control request can delay other socket work until its virtual-time deadline.
 
@@ -172,7 +172,7 @@ Attach the emulated device inside the guest using the USB/IP steps above, put th
 razer_updater_query.exe
 ```
 
-An optional argument selects a different DLL path. A successful query prints `Firmware version: 1.1.1` for the tested capture; other firmware versions are printed as returned. The native example has passed with the original Razer DLL under Wine 11.19 in a QEMU Linux guest, using the captured bootloader/application and USB/IP. This verifies that query path, while full Windows/Synapse compatibility remains unverified.
+An optional argument selects a different DLL path. A successful query prints `Firmware version: 1.1.1` for the tested capture; other firmware versions are printed as returned. The native example has passed with the original Razer DLL under Wine 11.19 in a QEMU Linux guest, using the captured bootloader/application and USB/IP. The same example also passes on native Windows 11 Pro in QEMU. This verifies the updater query path; Synapse settings/lighting operations remain unverified.
 
 ### Starting from the bootloader
 
@@ -265,6 +265,6 @@ The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-
 1. Extend normal matrix-input validation to more bindings, chords, rollover and reset.
 2. Recover physical key/RGB wiring and encoder detent/direction mapping.
 3. Complete remaining peripheral and USB power-state behavior.
-4. Validate device recognition and representative settings/lighting operations with Razer software in a QEMU Windows guest. Linux USB/IP matrix/media events and the original updater DLL’s version query under Wine pass; full Windows/Synapse operation remains unverified.
+4. Validate device recognition and representative settings/lighting operations with Razer software in a QEMU Windows guest. Linux USB/IP matrix/media events, Windows HID enumeration, and the original updater DLL’s version query on Wine and native Windows pass; Synapse settings/lighting operations remain unverified.
 
 MIT licensed. Third-party components retain their respective licenses.
