@@ -253,3 +253,73 @@ def test_private_firmware_enumerates_and_handles_razer_feature_reports(cpu_image
         assert keyboard.run_for(120_000).stopped_reason is None
         assert keyboard._bus.ReadDoubleWord(0x400824D0) & 1
         assert keyboard._bus.ReadDoubleWord(0x40082058) == 0
+
+
+def test_interrupt_in_respects_poll_slots_and_timeout_with_data_pending(usb_board):
+    keyboard, bus, device = usb_board
+    from Antmicro.Renode.Peripherals.Timers import LimitTimer
+    from Antmicro.Renode.Time import WorkMode
+    from System import Action
+
+    from razer_emu import UsbTimeout
+
+    payload = bytes.fromhex("0000040000000000")
+    bus.WriteBytes(_array(payload), BUFFER)
+    # The packet becomes available between the 125 us and 250 us polling slots.
+    timer = LimitTimer(
+        keyboard._machine.internal.ClockSource,
+        1_000_000,
+        device,
+        "prime-report",
+        limit=175,
+        enabled=True,
+        workMode=WorkMode.OneShot,
+        eventEnabled=True,
+    )
+    callback = Action(lambda: _arm(bus, 3, BUFFER, len(payload), flags=0x8C000000))
+    timer.LimitReached += callback
+    with pytest.raises(UsbTimeout):
+        keyboard.usb.read_interrupt(0x81, 8, interval_us=125, timeout_us=200)
+    assert keyboard.state().elapsed_us == 200
+    assert keyboard.usb.read_interrupt(0x81, 8, interval_us=125, timeout_us=100) == payload
+    assert keyboard.state().elapsed_us == 250
+    assert device.ReadDoubleWord(0x20) & 8  # endpoint completion IRQ, not fabricated data
+    _arm(bus, 3, BUFFER, 0, flags=0x8C000000)
+    assert keyboard.usb.read_interrupt(0x81, 8, interval_us=125) == b""
+    assert keyboard.state().elapsed_us == 375
+
+
+def test_interrupt_in_stall_disconnect_and_bus_reset_timing(usb_board):
+    keyboard, bus, _ = usb_board
+    from razer_emu import UsbError, UsbStall
+
+    _arm(bus, 3, BUFFER, 1, flags=0xA0000000)
+    with pytest.raises(UsbStall, match="0x81"):
+        keyboard.usb.read_interrupt(0x81, 8, interval_us=1_000_000)
+    # A reset discards the old endpoint's future polling slot.
+    keyboard.usb.reset_bus()
+    bus.WriteBytes(_array(b"\x42"), BUFFER)
+    _arm(bus, 3, BUFFER, 1, flags=0x8C000000)
+    start = keyboard.state().elapsed_us
+    assert keyboard.usb.read_interrupt(0x81, 8, timeout_us=1) == b"\x42"
+    assert keyboard.state().elapsed_us == start
+    keyboard.usb.disconnect()
+    with pytest.raises(UsbError, match="disconnected"):
+        keyboard.usb.read_interrupt(0x81, 8)
+
+
+def test_interrupt_in_rejects_invalid_endpoint_size_and_interval(usb_board):
+    keyboard, _, _ = usb_board
+    for endpoint, size, interval in (
+        (0x01, 8, 125),
+        (0x80, 8, 125),
+        (0x86, 8, 125),
+        (True, 8, 125),
+        (0x81, 0, 125),
+        (0x81, 1025, 125),
+        (0x81, True, 125),
+        (0x81, 8, 0),
+        (0x81, 8, True),
+    ):
+        with pytest.raises(ValueError):
+            keyboard.usb.read_interrupt(endpoint, size, interval_us=interval)

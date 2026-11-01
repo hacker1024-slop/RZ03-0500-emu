@@ -66,7 +66,7 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 `Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
 
-`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Keyboard-matrix input, encoder events and LED observation are forthcoming as their peripheral models are completed.
+`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping and encoder events remain incomplete.
 
 USB control requests are available through `keyboard.usb`:
 
@@ -79,6 +79,8 @@ descriptor = keyboard.usb.control(SetupPacket(0x80, 6, value=0x100, length=18))
 ```
 
 `connect()`, `reset_bus()` and `control()` can also be called separately. NAK polling advances virtual time within a bounded budget. `UsbTimeout`, `UsbStall` and `UsbError` distinguish deadline expiry, firmware STALL and emulator/device errors. The current host uses 64-byte endpoint-zero packets for this high-speed keyboard. Control replies come from the firmware's USB stack, including class requests; the host contains no Razer response implementation.
+
+`keyboard.usb.read_interrupt(0x81, 8, interval_us=125, timeout_us=100_000)` receives one firmware-produced IN packet. Supply the endpoint address, maximum packet size and polling interval appropriate to the firmware's descriptor. Short and zero-length packets are returned unchanged. Polling advances virtual time and preserves each endpoint's cadence across calls; disconnect, bus reset and MCU reset clear that schedule. Completion interrupts are serviced when virtual time next advances. This API does not synthesize HID reports or resolve the scanner startup limitation below.
 
 ### Matrix contacts
 

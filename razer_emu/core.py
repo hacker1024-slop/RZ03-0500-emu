@@ -187,6 +187,7 @@ class Keyboard:
             raise RuntimeError("Keyboard is closed")
         self._engine.PauseAll()
         self._machine.Reset()
+        self.usb._reset_timing()
         for controller in self._lighting.values():
             controller._backend.Reset()
         self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)

@@ -79,6 +79,10 @@ class UsbHost:
     def __init__(self, keyboard, backend):
         self._keyboard = keyboard
         self._backend = backend
+        self._interrupt_due = {}
+
+    def _reset_timing(self):
+        self._interrupt_due.clear()
 
     @property
     def connected(self):
@@ -101,6 +105,7 @@ class UsbHost:
         """Remove host power; firmware handles the event during subsequent runs."""
         self._keyboard.state()
         self._backend.VbusPresent = False
+        self._reset_timing()
 
     def reset_bus(self, *, high_speed=True, timeout_us=20_000):
         """Reset USB protocol state and allow 10 ms of virtual recovery time."""
@@ -111,6 +116,7 @@ class UsbHost:
             raise ValueError("Bus reset requires at least 10,000 us of recovery budget")
         while not self._backend.HostReset(high_speed):
             self._advance(deadline)
+        self._reset_timing()
         remaining = deadline - self._check().elapsed_us
         if remaining < 10_000:
             raise UsbTimeout("Insufficient virtual time for USB reset recovery")
@@ -177,6 +183,37 @@ class UsbHost:
             self._advance(deadline)
         return bytes(result)
 
+    def read_interrupt(self, endpoint, maximum_packet_size, *, interval_us=125, timeout_us=100_000):
+        """Receive one IN packet, polling no faster than the supplied interval.
+
+        Endpoint is the USB address (0x81 through 0x85). Pass packet size and
+        interval from the firmware's descriptor. A short or zero-length ACK is
+        returned unchanged. Completion IRQ service occurs when virtual time next
+        advances. Endpoint polling cadence persists across calls.
+        """
+        if type(endpoint) is not int or not 0x81 <= endpoint <= 0x85:
+            raise ValueError("Interrupt endpoint must be an IN address from 0x81 to 0x85")
+        if type(maximum_packet_size) is not int or not 1 <= maximum_packet_size <= 1024:
+            raise ValueError("Maximum packet size must be 1 to 1024 bytes")
+        if type(interval_us) is not int or not 1 <= interval_us <= 10_000_000:
+            raise ValueError("Polling interval must be 1 to 10,000,000 virtual microseconds")
+        deadline = self._deadline(timeout_us)
+
+        def poll():
+            now = self._check().elapsed_us
+            due = self._interrupt_due.get(endpoint, now)
+            if due > now:
+                self._advance(min(due, deadline), due - now)
+                now = self._check().elapsed_us
+                if now < due:
+                    raise UsbTimeout("Next interrupt poll falls outside the virtual-time budget")
+            self._interrupt_due[endpoint] = now + interval_us
+            return self._backend.HostIn(endpoint & 15, maximum_packet_size)
+
+        return self._packet(
+            poll, deadline, read=True, endpoint=endpoint, poll_interval_us=interval_us
+        )
+
     @staticmethod
     def _array(data):
         from System import Array, Byte
@@ -194,14 +231,14 @@ class UsbHost:
             raise ValueError("USB timeout must be 1 to 10,000,000 virtual microseconds")
         return self._check().elapsed_us + timeout_us
 
-    def _advance(self, deadline):
+    def _advance(self, deadline, quantum_us=10):
         remaining = deadline - self._check().elapsed_us
         if remaining <= 0:
             raise UsbTimeout("USB transaction exceeded its virtual-time budget")
-        self._keyboard.run_for(min(10, remaining))
+        self._keyboard.run_for(min(quantum_us, remaining))
         self._check()
 
-    def _packet(self, operation, deadline, *, read=False):
+    def _packet(self, operation, deadline, *, read=False, endpoint=0, poll_interval_us=10):
         while True:
             self._check()
             if not self._backend.Connected:
@@ -211,5 +248,5 @@ class UsbHost:
             if handshake == "Ack":
                 return bytes(result.Data) if read else None
             if handshake == "Stall":
-                raise UsbStall("Firmware stalled endpoint zero")
-            self._advance(deadline)
+                raise UsbStall(f"Firmware stalled endpoint 0x{endpoint:02x}")
+            self._advance(deadline, poll_interval_us)
