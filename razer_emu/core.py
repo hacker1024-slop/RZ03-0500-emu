@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from .firmware import FLASH_APPLICATION, RUNTIME_BASE, Firmware
 from .lighting import LightingController
+from .matrix import COLUMN_PINS, ROW_PINS, Matrix
 from .usb import UsbHost
 
 
@@ -81,6 +82,7 @@ class Keyboard:
         Keyboard._active = True
         self._closed = False
         self._lighting = {}
+        self._matrix = None
         try:
             if not Keyboard._models_loaded:
                 for name in (
@@ -96,6 +98,7 @@ class Keyboard:
                     "LpcWatchdog.cs",
                     "LpcEzhBoolean.cs",
                     "LpcEzh.cs",
+                    "DiodeMatrix.cs",
                 ):
                     model = files("razer_emu").joinpath("platforms/" + name)
                     _, error = Monitor().execute(f"include @{model}")
@@ -123,6 +126,25 @@ class Keyboard:
         except BaseException:
             self.close()
             raise
+
+    @property
+    def matrix(self):
+        self.state()
+        return self._matrix
+
+    def attach_matrix(self):
+        """Attach the inferred 8×16 EZH contacts before firmware execution."""
+        from Antmicro.Renode.Peripherals.Input import RazerDiodeMatrix
+        from System import Array, Int32
+
+        self._ensure_running()
+        if self._elapsed_us or self._cpu.ExecutedInstructions:
+            raise RuntimeError("Attach the matrix before firmware execution")
+        if self._matrix is not None:
+            raise ValueError("Matrix already configured")
+        backend = RazerDiodeMatrix(self._ezh, Array[Int32](ROW_PINS), Array[Int32](COLUMN_PINS))
+        self._matrix = Matrix(self, backend)
+        return self._matrix
 
     def attach_lighting(self, bus, address):
         """Configure an inferred CHROMA 192-compatible target before execution.

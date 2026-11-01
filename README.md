@@ -80,6 +80,12 @@ descriptor = keyboard.usb.control(SetupPacket(0x80, 6, value=0x100, length=18))
 
 `connect()`, `reset_bus()` and `control()` can also be called separately. NAK polling advances virtual time within a bounded budget. `UsbTimeout`, `UsbStall` and `UsbError` distinguish deadline expiry, firmware STALL and emulator/device errors. The current host uses 64-byte endpoint-zero packets for this high-speed keyboard. Control replies come from the firmware's USB stack, including class requests; the host contains no Razer response implementation.
 
+### Matrix contacts
+
+A contact model can be attached before execution with `matrix = keyboard.attach_matrix()`. It uses the eight row bits and sixteen column bits recovered from the EZH program. `matrix.press(row, column)`, `matrix.release(row, column)` and `matrix.set_key(row, column, pressed)` update ideal active-low, diode-isolated contacts. Coordinates range from row 0–7 and column 0–15. `matrix.pressed` returns an immutable set of held coordinates; contacts stay held across MCU reset. After attachment, the view is also available as `keyboard.matrix`.
+
+These coordinates are electrical scan positions. Physical key/HID mapping, CPU GPIO pin mux and media controls remain incomplete. Normal firmware startup still reaches the unresolved EZH HOLD checkpoint, so attaching contacts does not yet produce USB key events. Matrix tests verify the EZH input path and row selection using synthetic scanner instructions. A separate private component probe can execute the original row routine, but selecting that routine directly is not a completed firmware boot.
+
 ### Lighting output
 
 The photographed chip is branded RAZER CHROMA 192. Its observed firmware transactions match an IS31FL3733-compatible register interface. Populated addresses are still unconfirmed, so configure a target explicitly before running firmware:

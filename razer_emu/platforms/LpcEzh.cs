@@ -66,6 +66,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             base.WriteDoubleWord(offset, value);
             if(offset == 0x44 && (values[0x40] & 3) == 2) IRQ.Blink();
         }
+        public Func<uint, uint, uint> InputPins { get; set; }
         public uint GetRegister(int index)
         {
             if(index < 0 || index > 15) throw new ArgumentOutOfRangeException(nameof(index));
@@ -322,6 +323,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             opcode == 14 || opcode == 0x10 || opcode == 0x12 || opcode == 0x15 || opcode == 0x18 || opcode == 0x1A || opcode == 0x1C;
         private uint ReadRegister(int register)
         {
+            if(register == 14 && InputPins != null) return InputPins(registers[8], registers[9]);
             if(register == 10) return detector.Selection;
             if(register == 11) return detector.Mode;
             return register == 13 ? pc + 4 : registers[register];
