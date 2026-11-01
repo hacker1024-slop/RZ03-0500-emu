@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from razer_emu import Firmware, FlashRegion
+from razer_emu import Bootloader, Firmware, FlashRegion
 from razer_emu.core import Keyboard
 
 I2C = 0x4008A800
@@ -174,3 +174,57 @@ def test_i2c_dma_read_does_not_prefetch_past_last_lighting_register(cpu_image):
         assert keyboard.read_memory(target, 1) == b"\xc5"
         assert chip.state().unsupported_operation is None
         bus.WriteDoubleWord(I2C + 0x20, 4)
+
+
+@pytest.mark.parametrize("register", [0xE1, 0xE2, 0xE3])
+def test_lighting_test_register_protection_and_normal_scan_recovery(cpu_image, register):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        chip = keyboard.attach_lighting(4, 0x50)
+        bus = keyboard._bus
+        _page(bus, 1)
+        _write(bus, 0, 127, 255)
+        _page(bus, 0)
+        _write(bus, 0, 3)
+        _page(bus, 3)
+        _write(bus, 0, 1)
+        _write(bus, 1, 255)
+        before = chip.state()
+        _write(bus, register, 1)  # protected until E0 unlocks test registers
+        assert chip.state() == before
+        # The original firmware's periodic anti-test-mode sequence.
+        for address, value in ((0xE0, 1), (0xE2, 0), (0xE3, 0), (0xE1, 0), (0xE0, 0)):
+            _write(bus, address, value)
+        assert chip.state() == before
+        assert keyboard.state().stopped_reason is None
+        _write(bus, 0xE0, 1)
+        _write(bus, register, 1)  # nondefault scan/trim behavior is still unsupported
+        assert keyboard.state().stopped_reason == "unsupported_lighting"
+        assert "nondefault lighting test configuration" in chip.state().unsupported_operation
+        keyboard.reset()
+        _page(bus, 3)
+        _write(bus, register, 1)  # reset reinstates protection
+        assert keyboard.state().stopped_reason is None
+
+
+def test_private_firmware_lighting_survives_periodic_scan_recovery(cpu_image):
+    path = os.environ.get("RAZER_TEST_FIRMWARE")
+    dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
+    bootloader = os.environ.get("RAZER_TEST_BOOTLOADER_DUMP")
+    if not path or not dumps:
+        pytest.skip("Set private firmware and verified captures for lighting integration")
+    regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
+    with Keyboard(
+        Firmware.load(path),
+        flash_regions=regions,
+        bootloader=Bootloader.load_dump(bootloader) if bootloader else None,
+    ) as keyboard:
+        chip = keyboard.attach_lighting(4, 0x50)
+        keyboard.usb.enumerate_device()
+        # The first periodic E0/E2/E3/E1/E0 recovery occurs after five seconds.
+        state = keyboard.run_for(6_500_000)
+        assert state.elapsed_us >= 6_500_000
+        assert state.stopped_reason is None
+        assert state.unknown_reads == state.unknown_writes == 0
+        assert chip.state().unsupported_operation is None
+        assert not chip.state().shutdown
+        assert chip.state().enabled == bytes([255]) * 24

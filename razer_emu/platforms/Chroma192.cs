@@ -50,6 +50,7 @@ namespace Antmicro.Renode.Peripherals.LED
         {
             Array.Clear(registers, 0, registers.Length);
             page = pointer = unlock = interruptMask = 0;
+            testUnlocked = false;
         }
         private void WriteRegister(byte address, byte value)
         {
@@ -76,6 +77,16 @@ namespace Antmicro.Renode.Peripherals.LED
                 if(address == 0 && (value & 6) != 0) Fail("automatic breathing or open/short detection", value);
                 return;
             }
+            // IS31FL3733-compatible PG3 test protection (datasheet tables 21-24).
+            // Firmware periodically restores normal scanning/default trims.
+            if(page == 3 && address == 0xE0)
+            { testUnlocked = (value & 1) != 0; return; }
+            if(page == 3 && address >= 0xE1 && address <= 0xE3)
+            {
+                if(!testUnlocked) return;
+                if(value != 0) Fail("nondefault lighting test configuration", address);
+                return;
+            }
             Fail("write to a reserved or read-only register", address);
         }
         private void Fail(string operation, byte value)
@@ -85,5 +96,6 @@ namespace Antmicro.Renode.Peripherals.LED
         }
         private readonly byte[] registers = new byte[4 * 256];
         private byte page, pointer, unlock, interruptMask;
+        private bool testUnlocked;
     }
 }
