@@ -129,7 +129,8 @@ def test_capture_holes_do_not_acquire_valid_flash_ecc(cpu_image):
         assert keyboard.read_memory(0x44000, 32) == bytes(range(16)) + bytes(16)
 
 
-def test_original_application_with_verified_nvram(cpu_image):
+@pytest.mark.parametrize("vbus", [False, True])
+def test_original_application_with_verified_nvram(cpu_image, vbus):
     path = os.environ.get("RAZER_TEST_FIRMWARE")
     dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
     if not path or not dumps:
@@ -138,12 +139,18 @@ def test_original_application_with_verified_nvram(cpu_image):
         )
     regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
     with Keyboard(Firmware.load(path), flash_regions=regions) as keyboard:
-        state = keyboard.run_for(30000)
+        device = keyboard._machine.sysbus.usbDevice.internal
+        device.VbusPresent = vbus
+        state = keyboard.run_for(50000)
         assert state.instructions > 100_000
         assert state.elapsed_us >= 20000
         assert state.exception == 0
         assert state.fault_status == 0
-        assert state.stopped_reason in (None, "unsupported_mmio")
+        assert state.stopped_reason is None
+        assert device.Enabled
+        # The original IRQ handler handles host attachment and requests connect;
+        # the controller model never sets the software DCON control itself.
+        assert bool(device.ReadDoubleWord(0) & 0x10000) == vbus
 
 
 def test_watchdog_feed_and_expiration_are_virtual_time_events(cpu_image):
@@ -586,3 +593,123 @@ def test_ezh_reignition_discards_old_hold_pipeline(cpu_image):
         ezh.AdvanceCycles(1)
         assert not ezh.Holding and ezh.Instructions == 1
         assert ezh.GetRegister(0) == 9 and ezh.GetRegister(13) == code + 8
+
+
+def test_usb_phy_power_pll_aliases_and_usb_ram_reset(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        phy = keyboard._machine.sysbus.usbPhy.internal
+        base = 0x40038000
+        assert not phy.Ready and not phy.PllLocked
+        assert bus.ReadDoubleWord(base) == 0x1E1C00
+        # A software write cannot manufacture PLL_LOCK or a host connection.
+        bus.WriteDoubleWord(base + 0xA4, 0x80000000)
+        bus.WriteDoubleWord(base + 0x40, 0xFFFFFFFF)
+        assert bus.ReadDoubleWord(base + 0xA0) & 0x80000000 == 0
+        assert bus.ReadDoubleWord(base + 0x40) == 0
+        # Power + regulator + the reset-enabled PLL provide functional lock.
+        bus.WriteDoubleWord(base + 0xA4, 0x201000)
+        assert phy.PllLocked
+        assert bus.ReadDoubleWord(base + 0xA0) & 0x80000000
+        bus.WriteDoubleWord(base + 0xA8, 0x2000)  # disable PLL
+        assert not phy.PllLocked
+        bus.WriteDoubleWord(base + 0xA4, 0x2000)
+        bus.WriteDoubleWord(base + 0xA4, 0x80000)  # select explicit bias power-down
+        assert not phy.PllLocked
+        bus.WriteDoubleWord(base + 0xA8, 0x100000)
+        assert phy.PllLocked
+        phy.ReferenceClockPresent = False
+        assert not phy.PllLocked
+        phy.ReferenceClockPresent = True
+        bus.WriteDoubleWord(base + 0xA4, 0x40)
+        bus.WriteDoubleWord(base + 0x38, 0xC0000000)  # clear reset and clock gate
+        bus.WriteDoubleWord(base, 0)  # power up transmit/receive blocks
+        assert phy.Ready
+        bus.WriteDoubleWord(base + 0x34, 0x80000000)
+        assert not phy.Ready and bus.ReadDoubleWord(base + 0x30) & 0x40000000
+        bus.WriteDoubleWord(base + 0x38, 0x80000000)
+        assert not phy.Ready  # clock gate remains set after reset is released
+        bus.WriteDoubleWord(base + 0x38, 0x40000000)
+        assert phy.Ready
+        bus.WriteDoubleWord(base + 0x14, 0xF)
+        bus.WriteDoubleWord(base + 0x18, 2)
+        bus.WriteDoubleWord(base + 0x1C, 4)
+        assert bus.ReadDoubleWord(base + 0x10) & 0xF == 9
+        bus.WriteDoubleWord(0x40100000, 0x12345678)
+        bus.WriteDoubleWord(0x40103FFC, 0xDEADBEEF)
+        assert keyboard.read_memory(0x40100000, 4) == struct.pack("<I", 0x12345678)
+        assert keyboard.read_memory(0x40103FFC, 4) == struct.pack("<I", 0xDEADBEEF)
+        assert keyboard.state().stopped_reason is None
+        keyboard.reset()
+        assert not phy.Ready and not phy.PllLocked
+        assert keyboard.read_memory(0x40103FFC, 4) == bytes(4)
+
+
+def test_usb_device_interrupt_acknowledgement_and_endpoint_abort(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        device = keyboard._machine.sysbus.usbDevice.internal
+        base = 0x40094000
+        bus.WriteDoubleWord(base + 0x28, 4)  # software-set EP1 OUT interrupt
+        assert bus.ReadDoubleWord(base + 0x20) == 4 and not device.IRQ.IsSet
+        bus.WriteDoubleWord(base + 0x24, 4)
+        assert device.IRQ.IsSet
+        assert bus.ReadDoubleWord(0xE000E204) & (1 << 15)  # NVIC IRQ47
+        bus.WriteDoubleWord(base + 0x20, 4)  # W1C
+        assert not device.IRQ.IsSet and bus.ReadDoubleWord(base + 0x20) == 0
+        bus.WriteDoubleWord(base, 0x10C000AA)  # attempt to write physical status
+        assert device.Address == 42 and not device.Enabled  # PHY is powered down
+        assert bus.ReadDoubleWord(base) & 0x10C00000 == 0
+        device.VbusPresent = True
+        bus.WriteDoubleWord(base, 0xAA)
+        assert bus.ReadDoubleWord(base) & 0x10000000  # RO input survives CPU RMW
+        assert not device.IRQ.IsSet
+        # Aborting a channel cancels both of its buffers, preserving other fields
+        # and leaving neighboring channels untouched.
+        table = 0x40100100
+        bus.WriteDoubleWord(base + 8, table)
+        command = 0x80000000 | (17 << 11) | 8
+        for offset in (16, 20, 24):
+            bus.WriteDoubleWord(table + offset, command)
+        bus.WriteDoubleWord(base + 0x14, 4)
+        assert bus.ReadDoubleWord(base + 0x14) == 0
+        assert bus.ReadDoubleWord(table + 16) == command & ~0x80000000
+        assert bus.ReadDoubleWord(table + 20) == command & ~0x80000000
+        assert bus.ReadDoubleWord(table + 24) == command
+        assert keyboard.state().stopped_reason is None
+        # Invalid descriptor placement must not DMA into arbitrary MMIO.
+        bus.WriteDoubleWord(base + 8, 0x40000000)
+        bus.WriteDoubleWord(base + 0x14, 4)
+        assert keyboard.state().stopped_reason == "unsupported_mmio"
+        assert any("endpoint list outside USB RAM" in line for line in keyboard.logs())
+        keyboard.reset()
+        assert device.VbusPresent and bus.ReadDoubleWord(base) & 0x10000000
+
+
+def test_usb_vbus_change_interrupt_and_read_only_attachment_status(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        device = keyboard._machine.sysbus.usbDevice.internal
+        base = 0x40094000
+        bus.WriteDoubleWord(0x40038038, 0xC0000000)
+        bus.WriteDoubleWord(0x40038000, 0)
+        bus.WriteDoubleWord(0x400380A4, 0x203040)
+        bus.WriteDoubleWord(base + 0x24, 0x80000000)
+        device.VbusPresent = True
+        assert not device.IRQ.IsSet  # controller has not been enabled yet
+        bus.WriteDoubleWord(base, 0x80)
+        assert device.IRQ.IsSet
+        assert bus.ReadDoubleWord(base) & 0x18000000 == 0x18000000
+        assert bus.ReadDoubleWord(base + 0x10) & 0x100000
+        assert bus.ReadDoubleWord(base + 0x20) == 0x80000000
+        assert bus.ReadDoubleWord(base) & 0x04000000 == 0  # no synthetic bus reset
+        bus.WriteDoubleWord(base, 0x08000080)  # W1C OTG_C, preserve enable
+        bus.WriteDoubleWord(base + 0x20, 0x80000000)
+        assert not device.IRQ.IsSet
+        bus.WriteDoubleWord(base + 0x10, 0)
+        assert bus.ReadDoubleWord(base + 0x10) & 0x100000  # ADPPROBE is physical
+        device.VbusPresent = False
+        assert device.IRQ.IsSet
+        assert bus.ReadDoubleWord(base) & 0x10000000 == 0
+        assert bus.ReadDoubleWord(base + 0x10) & 0x100000 == 0
+        assert keyboard.state().stopped_reason is None

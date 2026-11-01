@@ -47,6 +47,8 @@ class Keyboard:
         "ctimer2",
         "ctimer3",
         "usbPort",
+        "usbPhy",
+        "usbDevice",
         "dma0",
         "flexcomm4",
         "flexcomm2",
@@ -81,6 +83,8 @@ class Keyboard:
                 for name in (
                     "LpcGpio.cs",
                     "LpcSyscon.cs",
+                    "LpcUsbPhy.cs",
+                    "LpcUsbDevice.cs",
                     "LpcTimer.cs",
                     "LpcDma.cs",
                     "LpcI2c.cs",
@@ -134,6 +138,7 @@ class Keyboard:
         self._machine.Reset()
         self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)
         self._bus.WriteBytes(Array[Byte](bytes(0x8000)), 0x04000000)
+        self._bus.WriteBytes(Array[Byte](bytes(0x4000)), 0x40100000)
         self._bus.WriteBytes(Array[Byte](self.firmware.image), RUNTIME_BASE)
         self._machine.sysbus.flash.LoadImage(FLASH_APPLICATION, Array[Byte](self.firmware.image))
         self._cpu.VectorTableOffset = RUNTIME_BASE
@@ -220,6 +225,7 @@ class Keyboard:
             (0, 0x80000),
             (0x04000000, 0x04008000),
             (0x20000000, 0x20030000),
+            (0x40100000, 0x40104000),
             (0x9FC00, 0xA0000),
         )
         if (

@@ -73,7 +73,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public virtual void Reset()
         {
             values.Clear();
-            values[0x10] = 0x4000; // FRO192M_CTRL: 12 MHz output enabled
+            values[0x10] = 0x0080D01A; // FRO192M_CTRL (NXP device-pack reset)
+            values[0x20] = 0x0021428A; // XO32M_CTRL
             UnsupportedReads = UnsupportedWrites = 0;
         }
         public virtual uint ReadDoubleWord(long offset)
@@ -86,8 +87,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public virtual void WriteDoubleWord(long offset, uint value)
         {
             if(values.ContainsKey(offset)) { values[offset] = value; return; }
+            RejectWrite(offset, value, "analog");
+        }
+        protected void RejectWrite(long offset, uint value, string operation)
+        {
             UnsupportedWrites++;
-            this.Log(LogLevel.Warning, "Unsupported analog write at +0x{0:X}: 0x{1:X}", offset, value);
+            this.Log(LogLevel.Warning, "Unsupported {0} write at +0x{1:X}: 0x{2:X}", operation, offset, value);
         }
         public long Size => 0x1000;
         public ulong UnsupportedReads { get; private set; }

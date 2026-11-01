@@ -62,10 +62,11 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 ## Implementation and limits
 
-- Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM backing, the memory bus, GPIO register behavior and the virtual clock infrastructure.
+- Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM/USB RAM backing, the memory bus, GPIO register behavior and the virtual clock infrastructure.
 - The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. The incomplete bootloader capture is not executed.
 - Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA configuration, Flexcomm I²C master bring-up, watchdog feeding/countdown, and EZH control registers. EZH supports initial mailbox/stack/GPIO operations, heartbeat synchronization, basic arithmetic, branches/calls, tight loops, Boolean detection and HOLD/vector dispatch. Its interrupt outputs and mailbox handshake are modeled, but the board's trigger/interrupt routing, emergency-vector execution and much of its instruction set remain incomplete.
 - Unknown bus accesses and unsupported operations in these models are checked every 10 virtual microseconds. Several accesses can occur within that interval before execution stops.
+- The USB PHY implements control aliases and functional power/PLL readiness. The USB device controller implements its register/interrupt control plane and endpoint aborts, backed by 16 KiB of USB RAM. Host packet transactions and USB enumeration are not implemented yet; enabled controller registers alone do not establish a working USB device.
 - Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2/3 sources are 96 MHz. Clock gating, analog behavior, resets, DMA data movement and pin electrical behavior are incomplete.
 - Unloaded flash has invalid ECC; controller reads report ECC errors and CPU reads fault. No specimen settings or bootloader are fabricated. Factory trim defaults and undocumented register assumptions are described in [model notes](docs/model-notes.md). These are not a recovered copy of a particular keyboard's factory data or persistent settings.
 
@@ -95,7 +96,7 @@ The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-
 
 1. Complete MCU/board peripheral behavior and establish reproducible application boot.
 2. Recover matrix, encoder and LED wiring; expose input and output events through the core.
-3. Implement the firmware-facing USB controller and validate enumeration and HID transactions in-process.
+3. Complete the firmware-facing USB controller and validate enumeration and HID transactions in-process.
 4. **Last:** export that controller through Renode USB/IP and validate real Razer software in a QEMU Windows guest. Host-side USB forwarding has not been implemented or tested yet.
 
 MIT licensed. Third-party components retain their respective licenses.
