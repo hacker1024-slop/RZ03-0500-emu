@@ -12,6 +12,8 @@ class State:
     pc: int
     sp: int
     instructions: int
+    ezh_pc: int
+    ezh_instructions: int
     elapsed_us: int
     exception: int
     fault_status: int
@@ -101,6 +103,7 @@ class Keyboard:
                     region.address, Array[Byte](region.data), Array[Byte](region.valid_mask)
                 )
             self._watchdog = self._machine.sysbus.wwdt.internal
+            self._ezh = self._machine.sysbus.ezh.internal
             self.reset()
         except BaseException:
             self.close()
@@ -182,6 +185,8 @@ class Keyboard:
             self._value(self._cpu.PC),
             self._value(self._cpu.SP),
             self._cpu.ExecutedInstructions,
+            self._ezh.ReadDoubleWord(0x28),
+            self._ezh.Instructions,
             self._elapsed_us,
             exception,
             faults,

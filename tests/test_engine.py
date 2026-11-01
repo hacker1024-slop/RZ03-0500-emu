@@ -158,3 +158,72 @@ def test_watchdog_feed_and_expiration_are_virtual_time_events(cpu_image):
             bus.WriteDoubleWord(base + 8, value)
         assert keyboard.run_for(500).stopped_reason is None
         assert keyboard.run_for(700).stopped_reason == "watchdog_expired"
+
+
+def test_ezh_mailbox_word_addressing_and_register_operations(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        bus = keyboard._bus
+        ezh = keyboard._ezh
+        code = 0x20028000
+        mailbox = 0x20029000
+        bus.WriteDoubleWord(mailbox, 0x2002F000)
+        bus.WriteDoubleWord(mailbox + 4, 0xDEADBEEF)
+        bus.WriteDoubleWord(0x4001D040, mailbox | 2)
+        # Original, synthetic architecture-B words; no vendor firmware included.
+        words = [
+            0x12,  # NOP
+            4 | (6 << 10) | (0x1D040 << 12),  # PER_READ R6, ARM2EZH
+            0x10 | (6 << 10) | (6 << 20) | (2 << 18) | (2 << 24),  # LSR R6, 2
+            0x10 | (6 << 10) | (6 << 20) | (2 << 24),  # LSL R6, 2
+            1 | (12 << 10) | (6 << 14) | (1 << 18),  # LDR SP, [R6]
+            1 | (7 << 10) | (6 << 14) | (1 << 18) | (1 << 24),  # LDR R7, [R6+4]
+            0x18 | (8 << 10) | (8 << 14) | (7 << 24) | (6 << 29),  # set GPO7
+            0x18 | (9 << 10) | (9 << 14) | (7 << 24) | (6 << 29),  # output GPD7
+            0x18 | (8 << 10) | (8 << 14) | (7 << 24) | (1 << 29),  # clear GPO7
+            (1 << 18) | (0x7FF << 20),  # LOAD_IMM R0, -1
+        ]
+        bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
+        bus.WriteDoubleWord(0x4001D020, code | 1)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh.StepInstructions(len(words))
+        assert ezh.Instructions == len(words)
+        assert ezh.GetRegister(12) == 0x2002F000
+        assert ezh.GetRegister(7) == 0xDEADBEEF
+        assert ezh.GetRegister(6) == mailbox  # loads without WB preserve their pointer
+        assert ezh.GetRegister(0) == 0xFFFFFFFF
+        assert ezh.GetRegister(8) == 0
+        assert ezh.GetRegister(9) == 1 << 7
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_unknown_opcode_stops_at_its_address(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        bus.WriteDoubleWord(0x20028000, 0x1C)
+        bus.WriteDoubleWord(0x4001D020, 0x20028000)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        state = keyboard.run_for(10)
+        assert state.stopped_reason == "unsupported_mmio"
+        assert state.ezh_pc == 0x20028000
+        assert not keyboard._ezh.Running
+        assert any("Unsupported EZH instruction" in line for line in keyboard.logs())
+
+
+def test_ezh_external_flag_conditions(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        code = 0x20028000
+        # NEX and EX are encoded 13 and 15, respectively.
+        bus.WriteDoubleWord(code, (1 << 18) | (1 << 20) | (13 << 5))
+        bus.WriteDoubleWord(code + 4, (1 << 18) | (2 << 20) | (15 << 5))
+        bus.WriteDoubleWord(code + 8, (1 << 18) | (3 << 20) | (15 << 5))
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        keyboard._ezh.StepInstructions(2)
+        assert keyboard._ezh.GetRegister(0) == 1
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0013)
+        keyboard._ezh.StepInstructions(1)
+        assert keyboard._ezh.GetRegister(0) == 3
+        assert keyboard.state().stopped_reason is None
