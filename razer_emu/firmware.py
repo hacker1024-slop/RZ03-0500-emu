@@ -29,11 +29,7 @@ class Firmware:
         if not 0x140 <= len(image) <= SRAM_SIZE:
             raise ValueError("Expected a raw application image, including its vector table")
         sp, reset = struct.unpack_from("<II", image)
-        if sp % 8 or not (
-            SRAMX_BASE < sp <= SRAMX_BASE + SRAMX_SIZE
-            or RUNTIME_BASE < sp <= RUNTIME_BASE + SRAM_SIZE
-        ):
-            raise ValueError("Initial stack pointer is outside LPC5528 SRAM")
+        _validate_stack(sp)
         if not reset & 1 or not RUNTIME_BASE <= (reset & ~1) < RUNTIME_BASE + len(image):
             raise ValueError("Expected a Thumb reset vector inside the SRAM application")
         return cls(image, sp, reset, hashlib.sha256(image).hexdigest())
@@ -93,3 +89,33 @@ class FlashRegion:
             return cls(manifest["region"]["start"], data, mask)
         except (KeyError, TypeError) as exc:
             raise ValueError("Invalid capture manifest") from exc
+
+
+def _validate_stack(sp):
+    if sp % 8 or not (
+        SRAMX_BASE < sp <= SRAMX_BASE + SRAMX_SIZE or RUNTIME_BASE < sp <= RUNTIME_BASE + SRAM_SIZE
+    ):
+        raise ValueError("Initial stack pointer is outside LPC5528 SRAM")
+
+
+@dataclass(frozen=True)
+class Bootloader:
+    """Complete verified flash bootloader, separate from the SRAM application."""
+
+    image: bytes
+    initial_sp: int
+    reset_vector: int
+    sha256: str
+
+    @classmethod
+    def load_dump(cls, directory):
+        capture = FlashRegion.load_dump(directory)
+        if capture.address != 0 or len(capture.data) != 0x8000 or not all(capture.valid_mask):
+            raise ValueError(
+                "Bootloader requires a fully verified 32 KiB capture at flash address zero"
+            )
+        sp, reset = struct.unpack_from("<II", capture.data)
+        _validate_stack(sp)
+        if not reset & 1 or not 0 <= (reset & ~1) < len(capture.data):
+            raise ValueError("Expected a Thumb reset vector inside the flash bootloader")
+        return cls(capture.data, sp, reset, hashlib.sha256(capture.data).hexdigest())

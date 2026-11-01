@@ -3,13 +3,15 @@ using System;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Exceptions;
 using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.CPU;
 using Antmicro.Renode.Peripherals.Miscellaneous;
 
 namespace Antmicro.Renode.Peripherals.MTD
 {
     // LPC55 erased words have no valid ECC. Raw controller access is separate
     // from CPU reads, which must produce a bus fault on an unprogrammed word.
-    public class RazerLpcFlash : IBytePeripheral, IWordPeripheral, IDoubleWordPeripheral, IKnownSize
+    // IExecutableIO routes code fetch through these same checked read methods.
+    public class RazerLpcFlash : IBytePeripheral, IWordPeripheral, IDoubleWordPeripheral, IExecutableIO, IKnownSize
     {
         public RazerLpcFlash(IMachine machine) { this.machine = machine; }
         public void Reset() { } // reset does not erase nonvolatile memory
@@ -26,12 +28,26 @@ namespace Antmicro.Renode.Peripherals.MTD
         }
         public ushort ReadWord(long offset) => (ushort)(ReadByte(offset) | ReadByte(offset + 1) << 8);
         public uint ReadDoubleWord(long offset) => (uint)(ReadWord(offset) | (uint)ReadWord(offset + 2) << 16);
+        public ulong ReadQuadWord(long offset) => ReadDoubleWord(offset) | ((ulong)ReadDoubleWord(offset + 4) << 32);
+        public byte[] ReadBytes(long offset, int count, IPeripheral context = null)
+        {
+            var result = new byte[count];
+            for(var i = 0; i < count; i++) result[i] = ReadByte(offset + i);
+            return result;
+        }
+        public void WriteBytes(long offset, byte[] data, int startingIndex, int count, IPeripheral context = null)
+        {
+            for(var i = 0; i < count; i++) WriteByte(offset + i, data[startingIndex + i]);
+        }
+        public void WriteQuadWord(long offset, ulong value)
+        { WriteDoubleWord(offset, (uint)value); WriteDoubleWord(offset + 4, (uint)(value >> 32)); }
         public void WriteByte(long offset, byte value)
         {
             if(machine.SystemBus.TryGetCurrentCPU(out var cpu))
                 throw new BusAccessException(BusAccessError.AddressError);
             bytes[offset] = value;
             programmed[offset / 16] = true; // host image loading only
+            Invalidate((int)offset, 1);
         }
         public void WriteWord(long offset, ushort value)
         { WriteByte(offset, (byte)value); WriteByte(offset + 1, (byte)(value >> 8)); }
@@ -43,6 +59,7 @@ namespace Antmicro.Renode.Peripherals.MTD
                 throw new ArgumentException("Image is outside the flash bank");
             Array.Copy(image, 0, bytes, address, image.Length);
             for(var i = 0; i < image.Length; i += 16) programmed[(address + i) / 16] = true;
+            Invalidate(address, image.Length);
         }
         public void LoadRegion(int address, byte[] image, byte[] mask)
         {
@@ -57,6 +74,7 @@ namespace Antmicro.Renode.Peripherals.MTD
                 Array.Copy(image, word, bytes, address + word, 16);
                 programmed[(address + word) / 16] = true;
             }
+            Invalidate(address, image.Length);
         }
         public bool IsProgrammed(int address) => programmed[address / 16];
         public byte[] ReadRaw(int address, int count)
@@ -69,6 +87,7 @@ namespace Antmicro.Renode.Peripherals.MTD
         {
             Array.Clear(bytes, address, count);
             Array.Clear(programmed, address / 16, count / 16);
+            Invalidate(address, count);
         }
         public bool Program(int address, byte[] data)
         {
@@ -76,7 +95,18 @@ namespace Antmicro.Renode.Peripherals.MTD
                 if(IsProgrammed(address + i)) return false;
             Array.Copy(data, 0, bytes, address, data.Length);
             for(var i = 0; i < data.Length; i += 16) programmed[(address + i) / 16] = true;
+            Invalidate(address, data.Length);
             return true;
+        }
+        private void Invalidate(int address, int count)
+        {
+            foreach(var cpu in machine.SystemBus.GetCPUs())
+                if(cpu is TranslationCPU translated)
+                    foreach(var registration in machine.SystemBus.GetRegistrationPoints(this))
+                    {
+                        var start = (long)(registration.Range.StartAddress + registration.Offset) + address;
+                        translated.OrderTranslationBlocksInvalidation(new IntPtr(start), new IntPtr(start + count));
+                    }
         }
         private readonly byte[] bytes = new byte[0x80000];
         private readonly bool[] programmed = new bool[0x80000 / 16];

@@ -5,7 +5,7 @@ import asyncio
 import json
 import sys
 
-from .firmware import Firmware, FlashRegion
+from .firmware import Bootloader, Firmware, FlashRegion
 from .usb import UsbError
 
 
@@ -37,6 +37,11 @@ def main(argv=None):
         help="Export firmware USB on 127.0.0.1:PORT until interrupted (typically 3240)",
     )
     parser.add_argument(
+        "--bootloader-dump",
+        metavar="DIRECTORY",
+        help="Start from a complete verified bootloader capture instead of the application handoff",
+    )
+    parser.add_argument(
         "--flash-dump",
         action="append",
         default=[],
@@ -59,7 +64,9 @@ def main(argv=None):
 
         image = Firmware.load(args.firmware)
         with Keyboard(
-            image, flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump]
+            image,
+            flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump],
+            bootloader=Bootloader.load_dump(args.bootloader_dump) if args.bootloader_dump else None,
         ) as keyboard:
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
             if args.usbip is not None:
@@ -80,6 +87,8 @@ def main(argv=None):
                 usb_error = str(exc)
             state = keyboard.state() if usb_error else keyboard.run_for(args.microseconds)
             result = {"firmware_sha256": image.sha256, **state.to_dict()}
+            if keyboard.bootloader is not None:
+                result["bootloader_sha256"] = keyboard.bootloader.sha256
             if usb is not None:
                 result["usb"] = usb
             if lighting:

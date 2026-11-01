@@ -844,3 +844,78 @@ def test_ezh_fused_add_sets_arithmetic_carry_and_zero_flags(cpu_image):
         assert keyboard._ezh.GetRegister(0) == 0
         assert keyboard._ezh.GetRegister(3) == 7
         assert keyboard.state().stopped_reason is None
+
+
+def test_flash_execution_reprogramming_and_boot_reset_preserve_nonvolatile_state(cpu_image):
+    import hashlib
+
+    from razer_emu import Bootloader
+
+    image = bytearray(0x8000)
+    struct.pack_into("<II", image, 0, 0x04008000, 0x101)
+    image[0x100:0x106] = bytes.fromhex("2a200131fde7")  # movs r0,42; adds r1,1; b 0x102
+    boot = Bootloader(bytes(image), 0x04008000, 0x101, hashlib.sha256(image).hexdigest())
+    with Keyboard(Firmware.load(cpu_image), bootloader=boot) as keyboard:
+        from System import Array, Byte
+
+        # Cold boot starts in flash and leaves the SRAM application uncopied.
+        assert keyboard.state().pc == 0x100
+        assert keyboard.read_memory(0x20000000, 16) == bytes(16)
+        assert keyboard.run_for(10).stopped_reason is None
+        assert keyboard._value(keyboard._cpu.GetRegister(0)) == 42
+        flash = keyboard._machine.sysbus.flash.internal
+        flash.Erase(0, 512)
+        image[0x100] = 99
+        assert flash.Program(0, Array[Byte](image[:512]))
+        keyboard._cpu.PC = keyboard._register(0x101)
+        assert keyboard.run_for(10).stopped_reason is None
+        assert keyboard._value(keyboard._cpu.GetRegister(0)) == 99
+        keyboard.reset()
+        assert keyboard.read_memory(0x100, 2) == bytes([99, 0x20])
+        assert keyboard.run_for(10).stopped_reason is None
+        assert keyboard._value(keyboard._cpu.GetRegister(0)) == 99
+
+
+@pytest.mark.parametrize("fetch", [False, True])
+def test_executable_flash_preserves_ecc_faults(cpu_image, fetch):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        # Exercise both data reads and instruction fetch from an ECC hole.
+        code = bytes.fromhex("01480168fee700bf00400400") + bytes(4)
+        keyboard._machine.sysbus.flash.internal.LoadImage(0x100, Array[Byte](code))
+        keyboard._cpu.PC = keyboard._register(0x44001 if fetch else 0x101)
+        state = keyboard.run_for(10)
+        assert state.stopped_reason == "cpu_fault"
+        assert keyboard._bus.ReadDoubleWord(0x40034FE0) & 8
+        if not fetch:
+            assert state.fault_status & 0x8200 == 0x8200
+            assert state.fault_address == 0x44000
+
+
+def test_private_complete_bootloader_cold_boots_original_application(cpu_image):
+    from razer_emu import Bootloader
+
+    path = os.environ.get("RAZER_TEST_FIRMWARE")
+    dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
+    boot_dump = os.environ.get("RAZER_TEST_BOOTLOADER_DUMP")
+    if not path or not dumps or not boot_dump:
+        pytest.skip("Set private firmware, flash captures and complete bootloader capture")
+    firmware = Firmware.load(path)
+    boot = Bootloader.load_dump(boot_dump)
+    regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
+    with Keyboard(firmware, flash_regions=regions, bootloader=boot) as keyboard:
+        assert keyboard.state().pc == boot.reset_vector & ~1
+        assert keyboard.read_memory(0x20000000, len(firmware.image)) == bytes(len(firmware.image))
+        for _ in range(2):
+            enumeration = keyboard.usb.enumerate_device()
+            assert struct.unpack_from("<HH", enumeration.device, 8) == (0x1532, 0x02A5)
+            assert enumeration.configuration[4] == 5
+            assert keyboard.read_memory(0x20000000, len(firmware.image)) == firmware.image
+            assert keyboard.state().stopped_reason is None
+            # Neither application handoff nor direct memory mapping is injected.
+            # The actual bootloader copies the application and selects its vectors.
+            assert keyboard._cpu.VectorTableOffset == 0x20000000
+            keyboard.reset()
+            assert keyboard.state().pc == boot.reset_vector & ~1
+            assert keyboard.read_memory(0x20000000, 16) == bytes(16)

@@ -1,10 +1,11 @@
 """Reusable firmware emulator; importing the package does not initialize Renode."""
 
-from .firmware import Firmware, FlashRegion
+from .firmware import Bootloader, Firmware, FlashRegion
 from .lighting import LightingState
 from .usb import SetupPacket, UsbError, UsbStall, UsbTimeout
 
 __all__ = [
+    "Bootloader",
     "Firmware",
     "FlashRegion",
     "LightingState",

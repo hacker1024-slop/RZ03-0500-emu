@@ -116,6 +116,23 @@ The reusable entry point is `razer_emu.usbip.UsbIpServer(keyboard, enumeration)`
 
 Protocol and network references: [Linux USB/IP specification](https://docs.kernel.org/usb/usbip_protocol.html), [Linux VHCI address handling](https://github.com/torvalds/linux/blob/master/drivers/usb/usbip/vhci_hcd.c), [QEMU user networking](https://www.qemu.org/docs/master/system/devices/net.html).
 
+### Starting from the bootloader
+
+The default start recreates the bootloader's application handoff in SRAM. To execute the captured bootloader itself, provide a fully verified 32 KiB capture at flash address zero:
+
+```sh
+razer-emu application.bin \
+  --bootloader-dump ./bootloader-capture \
+  --flash-dump ./application-b-capture \
+  --flash-dump ./settings-capture \
+  --flash-dump ./remaining-flash-capture \
+  --usb-enumerate --microseconds 100000
+```
+
+The bootloader importer rejects holes, wrong region boundaries, invalid vectors and capture hash mismatches. No bootloader image is included. The library equivalent is `Keyboard(firmware, bootloader=Bootloader.load_dump(directory), flash_regions=regions)`; import `Bootloader` from `razer_emu`. This starts at the flash reset vector with zeroed SRAM and lets the original bootloader load and enter the application. In this mode, `reset()` preserves emulated flash programming and re-enters the bootloader. It does not recreate the MCU's internal ROM boot process or analog power-on timing.
+
+The complete private bootloader and 1.1.1 application have passed cold boot and USB enumeration through this path. The unresolved EZH HOLD remains, so cold boot does not yet establish working normal key input. `--bootloader-dump` can also be combined with `--usbip`.
+
 ### Matrix contacts
 
 A contact model can be attached before execution with `matrix = keyboard.attach_matrix()`. It uses the eight row bits and sixteen column bits recovered from the EZH program. `matrix.press(row, column)`, `matrix.release(row, column)` and `matrix.set_key(row, column, pressed)` update ideal active-low, diode-isolated contacts. Coordinates range from row 0–7 and column 0–15. `matrix.pressed` returns an immutable set of held coordinates; contacts stay held across MCU reset. After attachment, the view is also available as `keyboard.matrix`.
@@ -149,7 +166,7 @@ These are logical channel levels, not calibrated light output. The physical chan
 ## Implementation and limits
 
 - Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM/USB RAM backing, the memory bus, GPIO register behavior, the DMA copy engine and the virtual clock infrastructure.
-- The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. The incomplete bootloader capture is not executed.
+- The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. With a complete `--bootloader-dump`, execution instead starts in checked flash and the original bootloader performs the application handoff.
 - Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA transfers, Flexcomm I²C master operations, watchdog feeding/countdown, and EZH control registers. EZH supports initial mailbox/stack/GPIO operations, heartbeat synchronization, basic arithmetic, fused shift/ALU operations, branches/calls, tight loops, Boolean detection and HOLD/vector dispatch. Its interrupt outputs and mailbox handshake are modeled, but the board's trigger/interrupt routing, emergency-vector execution and much of its instruction set remain incomplete.
 - Unknown bus accesses and unsupported operations in these models are checked every 10 virtual microseconds. Several accesses can occur within that interval before execution stops.
 - DMA0 executes SRAM descriptors with peripheral request gating, linked transfers, completion/error interrupts and aborts. Flexcomm I2C generates DMA requests for attached targets; absent targets NACK. Hardware trigger routing and bus arbitration timing remain incomplete. An explicitly configured CHROMA 192-compatible model implements page unlocking, 192 PWM channels, 24 enable bytes, global current, software shutdown and read-triggered reset.
@@ -177,7 +194,7 @@ To include execution of your private application image:
 RAZER_TEST_FIRMWARE=/path/to/application.bin python -m pytest --run-engine
 ```
 
-The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. USB tests cover packet DMA, short transfers, completion/abort behavior and virtual deadlines. Private-image tests target application 1.1.1 and validate descriptor reads, configuration, STALL recovery and a 90-byte Razer feature-report exchange; they do not assert working keyboard input. Set `RAZER_TEST_FLASH_DUMPS` to verified capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
+The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. USB tests cover packet DMA, short transfers, completion/abort behavior and virtual deadlines. Private-image tests target application 1.1.1 and validate descriptor reads, configuration, STALL recovery and a 90-byte Razer feature-report exchange; they do not assert working keyboard input. Set `RAZER_TEST_BOOTLOADER_DUMP` to a complete bootloader capture to include native cold-boot/reset validation. Set `RAZER_TEST_FLASH_DUMPS` to verified capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
 
 ## Remaining milestones
 

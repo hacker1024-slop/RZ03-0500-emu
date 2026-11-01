@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from importlib.resources import files
 from uuid import uuid4
 
-from .firmware import FLASH_APPLICATION, RUNTIME_BASE, Firmware
+from .firmware import FLASH_APPLICATION, RUNTIME_BASE, Bootloader, Firmware
 from .lighting import LightingController
 from .matrix import COLUMN_PINS, ROW_PINS, Matrix
 from .usb import UsbHost
@@ -60,7 +60,9 @@ class Keyboard:
         "ezh",
     )
 
-    def __init__(self, firmware: Firmware, *, flash_regions=()):
+    def __init__(
+        self, firmware: Firmware, *, flash_regions=(), bootloader: Bootloader | None = None
+    ):
         if Keyboard._active:
             raise RuntimeError("Use one Keyboard per process")
         # Renode is deliberately lazy-loaded, allowing file inspection without it.
@@ -72,6 +74,7 @@ class Keyboard:
         from Antmicro.Renode.Logging.Backends import MemoryBackend
 
         self.firmware = firmware
+        self.bootloader = bootloader
         self._emulation = Emulation()
         self._engine = self._emulation.internal
         self._name = "keyboard-" + uuid4().hex
@@ -119,6 +122,9 @@ class Keyboard:
                 flash.LoadRegion(
                     region.address, Array[Byte](region.data), Array[Byte](region.valid_mask)
                 )
+            if bootloader is not None:
+                flash.LoadImage(0, Array[Byte](bootloader.image))
+                flash.LoadImage(FLASH_APPLICATION, Array[Byte](firmware.image))
             self._watchdog = self._machine.sysbus.wwdt.internal
             self._ezh = self._machine.sysbus.ezh.internal
             self._usb_device = self._machine.sysbus.usbDevice.internal
@@ -203,7 +209,7 @@ class Keyboard:
         return int(str(register), 16)
 
     def reset(self):
-        """Recreate the application handoff; this does not run the incomplete bootloader."""
+        """Reset into the supplied bootloader, or recreate the application handoff."""
         from System import Array, Byte
 
         if self._closed:
@@ -216,11 +222,18 @@ class Keyboard:
         self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)
         self._bus.WriteBytes(Array[Byte](bytes(0x8000)), 0x04000000)
         self._bus.WriteBytes(Array[Byte](bytes(0x4000)), 0x40100000)
-        self._bus.WriteBytes(Array[Byte](self.firmware.image), RUNTIME_BASE)
-        self._machine.sysbus.flash.LoadImage(FLASH_APPLICATION, Array[Byte](self.firmware.image))
-        self._cpu.VectorTableOffset = RUNTIME_BASE
-        self._cpu.SP = self._register(self.firmware.initial_sp)
-        self._cpu.PC = self._register(self.firmware.reset_vector)
+        if self.bootloader is None:
+            self._bus.WriteBytes(Array[Byte](self.firmware.image), RUNTIME_BASE)
+            self._machine.sysbus.flash.LoadImage(
+                FLASH_APPLICATION, Array[Byte](self.firmware.image)
+            )
+            self._cpu.VectorTableOffset = RUNTIME_BASE
+            image = self.firmware
+        else:
+            self._cpu.VectorTableOffset = 0
+            image = self.bootloader
+        self._cpu.SP = self._register(image.initial_sp)
+        self._cpu.PC = self._register(image.reset_vector)
         self._cpu.PerformanceInMips = 96
         self._elapsed_us = 0
         self._reason = None
