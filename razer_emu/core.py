@@ -14,6 +14,7 @@ class State:
     instructions: int
     ezh_pc: int
     ezh_instructions: int
+    ezh_fault_address: int | None
     elapsed_us: int
     exception: int
     fault_status: int
@@ -179,6 +180,10 @@ class Keyboard:
         writes += sum(int(peripheral.UnsupportedWrites) for peripheral in self._modeled_peripherals)
         if self._watchdog.Expired:
             self._reason = "watchdog_expired"
+        elif self._ezh.BusFault:
+            self._reason = "ezh_bus_fault"
+        elif self._ezh.UnsupportedInstruction:
+            self._reason = "unsupported_ezh_instruction"
         elif reads or writes:
             self._reason = "unsupported_mmio"
         elif exception in (3, 4, 5, 6) or faults:
@@ -189,6 +194,7 @@ class Keyboard:
             self._cpu.ExecutedInstructions,
             self._ezh.ReadDoubleWord(0x28),
             self._ezh.Instructions,
+            self._ezh.FaultAddress if self._ezh.BusFault else None,
             self._elapsed_us,
             exception,
             faults,
