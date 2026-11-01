@@ -1,6 +1,7 @@
 """Headless frontend. All execution behavior belongs to the core library."""
 
 import argparse
+import asyncio
 import json
 import sys
 
@@ -30,6 +31,12 @@ def main(argv=None):
         help="Attach a virtual host, enumerate/configure USB, then run the requested time slice",
     )
     parser.add_argument(
+        "--usbip",
+        type=int,
+        metavar="PORT",
+        help="Export firmware USB on 127.0.0.1:PORT until interrupted (typically 3240)",
+    )
+    parser.add_argument(
         "--flash-dump",
         action="append",
         default=[],
@@ -45,6 +52,8 @@ def main(argv=None):
         help="Attach a CHROMA 192-compatible I2C target, e.g. 4:0x50 (repeatable)",
     )
     args = parser.parse_args(argv)
+    if args.usbip is not None and not 1 <= args.usbip <= 65535:
+        parser.error("USB/IP port must be 1 to 65535")
     try:
         from .core import Keyboard
 
@@ -53,6 +62,16 @@ def main(argv=None):
             image, flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump]
         ) as keyboard:
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
+            if args.usbip is not None:
+                from .usbip import UsbIpServer
+
+                enumeration = keyboard.usb.enumerate_device()
+                print(f"USB/IP listening on 127.0.0.1:{args.usbip}, bus ID 1-1", file=sys.stderr)
+                try:
+                    asyncio.run(UsbIpServer(keyboard, enumeration).serve(port=args.usbip))
+                except KeyboardInterrupt:
+                    pass
+                return 0
             usb = usb_error = None
             try:
                 if args.usb_enumerate:
