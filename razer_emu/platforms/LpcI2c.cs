@@ -3,14 +3,16 @@ using System.Collections.Generic;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Miscellaneous;
+using Antmicro.Renode.Peripherals.Bus;
 
 namespace Antmicro.Renode.Peripherals.I2C
 {
     // Functional LPC Flexcomm I2C master. Unconnected addresses NACK; they are
     // never treated as successfully responding hardware.
+    [AllowedTranslations(AllowedTranslation.ByteToDoubleWord | AllowedTranslation.WordToDoubleWord)]
     public class RazerLpcI2c : RazerLpcAnalog
     {
-        public RazerLpcI2c() { IRQ = new GPIO(); Reset(); }
+        public RazerLpcI2c() { IRQ = new GPIO(); DmaRead = new GPIO(); DmaWrite = new GPIO(); Reset(); }
         public override void Reset()
         {
             base.Reset(); values.Clear();
@@ -18,11 +20,15 @@ namespace Antmicro.Renode.Peripherals.I2C
                 values[offset] = 0;
             values[0xFF8] = 0x70; // USART, SPI and I2C present, no selected mode
             state = 0; active = null; pending.Clear();
-            IRQ?.Unset();
+            IRQ?.Unset(); DmaRead?.Unset(); DmaWrite?.Unset();
         }
         public void Attach(int address, II2CPeripheral device) { devices[address] = device; }
         public override uint ReadDoubleWord(long offset)
         {
+            if(offset == 0x828 && reading && active != null && (values[0x820] & 8) != 0)
+            {
+                var data = values[0x828]; Receive(); return data;
+            }
             if(offset == 0x804) return Status;
             if(offset == 0x818) return Status & values[0x808];
             return base.ReadDoubleWord(offset);
@@ -35,6 +41,11 @@ namespace Antmicro.Renode.Peripherals.I2C
             case 0x808: values[offset] |= value; UpdateIrq(); return;
             case 0x80C: values[0x808] &= ~value; UpdateIrq(); return;
             case 0x800: values[offset] = value; UpdateIrq(); return;
+            case 0x828:
+                values[offset] = value & 0xFF;
+                if(!reading && active != null && state == 2 && (values[0x820] & 8) != 0)
+                    pending.Add((byte)value);
+                return;
             case 0x820:
                 values[offset] = value;
                 if((value & 2) != 0)
@@ -57,7 +68,6 @@ namespace Antmicro.Renode.Peripherals.I2C
                     if(reading) Receive();
                     else pending.Add((byte)values[0x828]);
                 }
-                if((value & 8) != 0) base.WriteDoubleWord(0x1820, value); // DMA not yet modeled
                 UpdateIrq(); return;
             }
             base.WriteDoubleWord(offset, value);
@@ -72,9 +82,17 @@ namespace Antmicro.Renode.Peripherals.I2C
         {
             if(reading && active != null) values[0x828] = active.Read(1)[0];
         }
-        private uint Status => (values[0x800] & 1) == 0 ? 0 : (uint)(1 | state << 1);
-        private void UpdateIrq() { IRQ.Set((Status & values[0x808] & 1) != 0); }
+        private uint Status => (values[0x800] & 1) == 0 ? 0 : (uint)(state << 1) | (DmaActive ? 0U : 1U);
+        private bool DmaActive => (values[0x800] & 1) != 0 && (values[0x820] & 8) != 0 && active != null && (state == 1 || state == 2);
+        private void UpdateIrq()
+        {
+            IRQ.Set((Status & values[0x808] & 1) != 0);
+            DmaRead.Set(DmaActive && reading);
+            DmaWrite.Set(DmaActive && !reading);
+        }
         public GPIO IRQ { get; }
+        public GPIO DmaRead { get; }
+        public GPIO DmaWrite { get; }
         private int state;
         private bool reading;
         private II2CPeripheral active;

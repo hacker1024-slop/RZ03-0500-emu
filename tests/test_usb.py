@@ -249,3 +249,7 @@ def test_private_firmware_enumerates_and_handles_razer_feature_reports(cpu_image
         assert reply[8:11] == b"\x01\x01\x01"
         assert reduce(xor, reply[2:88], 0) == reply[88]
         assert keyboard.state().stopped_reason is None
+        # Exercise the later I2C DMA attempt and its NACK/abort path too.
+        assert keyboard.run_for(120_000).stopped_reason is None
+        assert keyboard._bus.ReadDoubleWord(0x400824D0) & 1
+        assert keyboard._bus.ReadDoubleWord(0x40082058) == 0
