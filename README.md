@@ -2,7 +2,7 @@
 
 A firmware-driven emulator for the Razer BlackWidow V4 75% (LPC5528 / Cortex-M33), built on [Renode](https://renode.io/) and [pyrenode3](https://github.com/antmicro/pyrenode3).
 
-**Work in progress. Physical key/RGB mapping and broad Razer software compatibility remain unfinished. Native Windows Synapse recognition, gaming-mode control, static lighting and brightness changes are verified for the tested firmware.** The original application executes without instruction patches, enumerates on an in-process virtual USB host, returns its HID descriptors, and answers a Razer firmware-version query. Normal matrix, encoder and independent-button inputs produce firmware-generated key, volume and mute reports. Matrix verification currently covers A-key press/release with the captured default binding. Unsupported peripheral accesses stop execution with diagnostics. Enumeration or a completed time slice alone does not establish a working keyboard.
+**Work in progress. A firmware-derived ANSI key/RGB map is available in the GUI; physical wiring validation and broad Razer software compatibility remain unfinished. Native Windows Synapse recognition, gaming-mode control, static lighting and brightness changes are verified for the tested firmware.** The original application executes without instruction patches, enumerates on an in-process virtual USB host, returns its HID descriptors, and answers a Razer firmware-version query. Normal matrix, encoder and independent-button inputs produce firmware-generated key, volume and mute reports. Matrix verification currently covers A-key press/release with the captured default binding. Unsupported peripheral accesses stop execution with diagnostics. Enumeration or a completed time slice alone does not establish a working keyboard.
 
 This project is AI-generated, experimental, unofficial, and unaffiliated with Razer. Peripheral behavior is incomplete and cannot establish that firmware modifications will work on physical hardware. The emulator itself does not open or modify a physical keyboard.
 
@@ -88,12 +88,30 @@ keyboard.run_for(160000)
 
 The core splits its execution quanta at event deadlines, including time advanced by USB transactions. `playback.cancel()` cancels future events while retaining current contact levels. MCU reset cancels playback too; calling `start()` again replays the script from its first event. Instruction stepping does not advance the script's virtual-time counter. Like the other input APIs, playback belongs to the core's owning thread.
 
+## Qt Quick application
+
+Install the optional frontend dependency:
+
+```sh
+python -m pip install -e '.[gui]'
+razer-emu-gui application.bin --flash-dump ./settings-capture
+```
+
+`python -m razer_emu_gui` is equivalent. Add repeated `--flash-dump` arguments for the verified application/settings regions and `--bootloader-dump DIRECTORY` for a complete bootloader capture. The window also has **Captures** and **Open firmware** controls. Original firmware needs its initialized settings; an application file alone may fault. The supplied key/RGB map targets application 1.1.1 with the documented SHA-256 and the ANSI physical layout; other images are rejected rather than assigned a guessed map.
+
+The keyboard background is an actual top-view Razer product photograph, downloaded from Razer's asset server on first launch and cached locally with an integrity check. It is not included in the MIT source or distributions. Use `--background /path/to/photo.png` to supply the aligned 750×420 image offline. Its printed lighting is decorative: the overlaid colour indicators and translucent key highlights show the emulated controller output.
+
+Click a key to press it and release the mouse to lift it. Short clicks last at least 40 ms of virtual time for firmware debounce; visible feedback may lag wall time when emulation is slow. Releasing outside a key, focus loss and pausing release contacts. The UI displays virtual time and firmware-produced USB input reports, with pause/resume and reset controls. Renode executes in a separate owning process, keeping GUI rendering independent of firmware execution.
+
+The mapping includes 81 ANSI matrix keys and the two independent media buttons. Key IDs, matrix contacts and RGB channels come from firmware tables; the background and hit-region alignment come from Razer's published ANSI product assets. [Mapping provenance and validation](docs/gui-mappings.md) describes the sources and limits. No physical keyboard access is required.
+
 ## Core library
 
-The distribution contains two Python packages:
+The distribution contains three Python packages:
 
 - `razer_emu`: the reusable core, hardware models, firmware loading, inputs and USB transport.
 - `razer_emu_cli`: argument parsing, command execution and terminal output; it depends on the core.
+- `razer_emu_gui`: optional PySide6 / Qt Quick application with a separate emulator worker process.
 
 Run the frontend with `razer-emu` or `python -m razer_emu_cli`. Core imports do not load the CLI. Execution and inspection live in the reusable core:
 
@@ -111,7 +129,7 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 `Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
 
-`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Execution is paused between advancement calls; a GUI can pause its worker by withholding further calls. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping remains incomplete. Normal firmware-generated matrix press/release is verified for electrical contact (3, 1), bound to A in the private capture.
+`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Execution is paused between advancement calls; a GUI can pause its worker by withholding further calls. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; the GUI supplies a firmware-specific ANSI physical map. Normal firmware-generated matrix press/release is verified for electrical contact (3, 1), bound to A in the private capture.
 
 USB control requests are available through `keyboard.usb`:
 
@@ -268,7 +286,7 @@ The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-
 ## Remaining milestones
 
 1. Extend normal matrix-input validation to more bindings, chords, rollover and reset.
-2. Recover physical key/RGB wiring and encoder detent/direction mapping.
+2. Validate the firmware-derived ANSI key/RGB map against physical hardware, add other layouts, and establish encoder detent/direction mapping.
 3. Complete remaining peripheral and USB power-state behavior.
 4. Broaden Windows/Razer software coverage beyond the verified Synapse recognition, gaming mode, static lighting, brightness and lighting-disable operations. USB suspend/resume, firmware updating and other products remain outside the verified set.
 

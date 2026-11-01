@@ -1,0 +1,2008 @@
+{
+  "model": "BlackWidow V4 75% ANSI",
+  "width": 750,
+  "height": 420,
+  "firmware_sha256": "85813c29d04bf853a1eef07fd3e5744c50c9e434e9c3f0c4feb0663b8f549ad1",
+  "controllers": [
+    {
+      "bus": 4,
+      "address": 80
+    },
+    {
+      "bus": 4,
+      "address": 95
+    },
+    {
+      "bus": 4,
+      "address": 83
+    }
+  ],
+  "keys": [
+    {
+      "id": "selEsc",
+      "label": "Esc",
+      "key_id": 110,
+      "x": 71.49,
+      "y": 83.8,
+      "width": 36.13,
+      "height": 35.5,
+      "matrix": [
+        0,
+        0
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        16,
+        0,
+        32
+      ],
+      "led_slot": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "selF1",
+      "label": "F1",
+      "key_id": 112,
+      "x": 120.41,
+      "y": 83.8,
+      "width": 35.02,
+      "height": 35.5,
+      "matrix": [
+        0,
+        1
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        17,
+        1,
+        33
+      ],
+      "led_slot": [
+        0,
+        1
+      ]
+    },
+    {
+      "id": "selF2",
+      "label": "F2",
+      "key_id": 113,
+      "x": 158.47,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        2
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        18,
+        2,
+        34
+      ],
+      "led_slot": [
+        0,
+        2
+      ]
+    },
+    {
+      "id": "selF3",
+      "label": "F3",
+      "key_id": 114,
+      "x": 196.54,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        3
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        19,
+        3,
+        35
+      ],
+      "led_slot": [
+        0,
+        3
+      ]
+    },
+    {
+      "id": "selF4",
+      "label": "F4",
+      "key_id": 115,
+      "x": 234.6,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        4
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        20,
+        4,
+        36
+      ],
+      "led_slot": [
+        0,
+        4
+      ]
+    },
+    {
+      "id": "selF5",
+      "label": "F5",
+      "key_id": 116,
+      "x": 283.62,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        5
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        21,
+        5,
+        37
+      ],
+      "led_slot": [
+        0,
+        5
+      ]
+    },
+    {
+      "id": "selF6",
+      "label": "F6",
+      "key_id": 117,
+      "x": 321.69,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        6
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        22,
+        6,
+        38
+      ],
+      "led_slot": [
+        0,
+        6
+      ]
+    },
+    {
+      "id": "selF7",
+      "label": "F7",
+      "key_id": 118,
+      "x": 359.75,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        7
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        23,
+        7,
+        39
+      ],
+      "led_slot": [
+        0,
+        7
+      ]
+    },
+    {
+      "id": "selF8",
+      "label": "F8",
+      "key_id": 119,
+      "x": 397.81,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        8
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        24,
+        8,
+        40
+      ],
+      "led_slot": [
+        0,
+        8
+      ]
+    },
+    {
+      "id": "selF9",
+      "label": "F9",
+      "key_id": 120,
+      "x": 447.85,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        9
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        25,
+        9,
+        41
+      ],
+      "led_slot": [
+        0,
+        9
+      ]
+    },
+    {
+      "id": "selF10",
+      "label": "F10",
+      "key_id": 121,
+      "x": 485.91,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        10
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        26,
+        10,
+        42
+      ],
+      "led_slot": [
+        0,
+        10
+      ]
+    },
+    {
+      "id": "selF11",
+      "label": "F11",
+      "key_id": 122,
+      "x": 523.98,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        11
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        27,
+        11,
+        43
+      ],
+      "led_slot": [
+        0,
+        11
+      ]
+    },
+    {
+      "id": "selF12",
+      "label": "F12",
+      "key_id": 123,
+      "x": 562.14,
+      "y": 83.8,
+      "width": 35.12,
+      "height": 35.5,
+      "matrix": [
+        0,
+        12
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        28,
+        12,
+        44
+      ],
+      "led_slot": [
+        0,
+        12
+      ]
+    },
+    {
+      "id": "selTilde",
+      "label": "Tilde",
+      "key_id": 1,
+      "x": 70.47,
+      "y": 137.5,
+      "width": 36.54,
+      "height": 35.1,
+      "matrix": [
+        1,
+        0
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        64,
+        48,
+        80
+      ],
+      "led_slot": [
+        1,
+        0
+      ]
+    },
+    {
+      "id": "sel1",
+      "label": "1",
+      "key_id": 2,
+      "x": 110.06,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        1
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        65,
+        49,
+        81
+      ],
+      "led_slot": [
+        1,
+        1
+      ]
+    },
+    {
+      "id": "sel2",
+      "label": "2",
+      "key_id": 3,
+      "x": 148.63,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        2
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        66,
+        50,
+        82
+      ],
+      "led_slot": [
+        1,
+        2
+      ]
+    },
+    {
+      "id": "sel3",
+      "label": "3",
+      "key_id": 4,
+      "x": 187.1,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        3
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        67,
+        51,
+        83
+      ],
+      "led_slot": [
+        1,
+        3
+      ]
+    },
+    {
+      "id": "sel4",
+      "label": "4",
+      "key_id": 5,
+      "x": 225.57,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        4
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        68,
+        52,
+        84
+      ],
+      "led_slot": [
+        1,
+        4
+      ]
+    },
+    {
+      "id": "sel5",
+      "label": "5",
+      "key_id": 6,
+      "x": 264.14,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        5
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        69,
+        53,
+        85
+      ],
+      "led_slot": [
+        1,
+        5
+      ]
+    },
+    {
+      "id": "sel6",
+      "label": "6",
+      "key_id": 7,
+      "x": 302.61,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        6
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        70,
+        54,
+        86
+      ],
+      "led_slot": [
+        1,
+        6
+      ]
+    },
+    {
+      "id": "sel7",
+      "label": "7",
+      "key_id": 8,
+      "x": 341.18,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        7
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        71,
+        55,
+        87
+      ],
+      "led_slot": [
+        1,
+        7
+      ]
+    },
+    {
+      "id": "sel8",
+      "label": "8",
+      "key_id": 9,
+      "x": 379.64,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        8
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        72,
+        56,
+        88
+      ],
+      "led_slot": [
+        1,
+        8
+      ]
+    },
+    {
+      "id": "sel9",
+      "label": "9",
+      "key_id": 10,
+      "x": 418.21,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        9
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        73,
+        57,
+        89
+      ],
+      "led_slot": [
+        1,
+        9
+      ]
+    },
+    {
+      "id": "sel0",
+      "label": "0",
+      "key_id": 11,
+      "x": 456.68,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        10
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        74,
+        58,
+        90
+      ],
+      "led_slot": [
+        1,
+        10
+      ]
+    },
+    {
+      "id": "selDash",
+      "label": "Dash",
+      "key_id": 12,
+      "x": 495.15,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        11
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        75,
+        59,
+        91
+      ],
+      "led_slot": [
+        1,
+        11
+      ]
+    },
+    {
+      "id": "selEqual",
+      "label": "Equal",
+      "key_id": 13,
+      "x": 533.72,
+      "y": 137.5,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        1,
+        12
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        76,
+        60,
+        92
+      ],
+      "led_slot": [
+        1,
+        12
+      ]
+    },
+    {
+      "id": "selBackspace",
+      "label": "Backspace",
+      "key_id": 15,
+      "x": 572.19,
+      "y": 137.5,
+      "width": 73.99,
+      "height": 35.1,
+      "matrix": [
+        1,
+        13
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        79,
+        63,
+        95
+      ],
+      "led_slot": [
+        1,
+        14
+      ]
+    },
+    {
+      "id": "selTab",
+      "label": "Tab",
+      "key_id": 16,
+      "x": 70.47,
+      "y": 175.7,
+      "width": 54.81,
+      "height": 35.1,
+      "matrix": [
+        2,
+        0
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        112,
+        96,
+        128
+      ],
+      "led_slot": [
+        2,
+        0
+      ]
+    },
+    {
+      "id": "selQ",
+      "label": "Q",
+      "key_id": 17,
+      "x": 128.23,
+      "y": 175.7,
+      "width": 35.52,
+      "height": 35.1,
+      "matrix": [
+        2,
+        1
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        113,
+        97,
+        129
+      ],
+      "led_slot": [
+        2,
+        1
+      ]
+    },
+    {
+      "id": "selW",
+      "label": "W",
+      "key_id": 18,
+      "x": 166.8,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        2
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        114,
+        98,
+        130
+      ],
+      "led_slot": [
+        2,
+        2
+      ]
+    },
+    {
+      "id": "selE",
+      "label": "E",
+      "key_id": 19,
+      "x": 205.37,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        3
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        115,
+        99,
+        131
+      ],
+      "led_slot": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": "selR",
+      "label": "R",
+      "key_id": 20,
+      "x": 243.84,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        4
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        116,
+        100,
+        132
+      ],
+      "led_slot": [
+        2,
+        4
+      ]
+    },
+    {
+      "id": "selT",
+      "label": "T",
+      "key_id": 21,
+      "x": 282.41,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        5
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        117,
+        101,
+        133
+      ],
+      "led_slot": [
+        2,
+        5
+      ]
+    },
+    {
+      "id": "selY",
+      "label": "Y",
+      "key_id": 22,
+      "x": 320.88,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        6
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        118,
+        102,
+        134
+      ],
+      "led_slot": [
+        2,
+        6
+      ]
+    },
+    {
+      "id": "selU",
+      "label": "U",
+      "key_id": 23,
+      "x": 359.34,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        7
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        119,
+        103,
+        135
+      ],
+      "led_slot": [
+        2,
+        7
+      ]
+    },
+    {
+      "id": "selI",
+      "label": "I",
+      "key_id": 24,
+      "x": 397.91,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        8
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        120,
+        104,
+        136
+      ],
+      "led_slot": [
+        2,
+        8
+      ]
+    },
+    {
+      "id": "selO",
+      "label": "O",
+      "key_id": 25,
+      "x": 436.38,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        9
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        121,
+        105,
+        137
+      ],
+      "led_slot": [
+        2,
+        9
+      ]
+    },
+    {
+      "id": "selP",
+      "label": "P",
+      "key_id": 26,
+      "x": 474.95,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        10
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        122,
+        106,
+        138
+      ],
+      "led_slot": [
+        2,
+        10
+      ]
+    },
+    {
+      "id": "selStartSquareBracket",
+      "label": "StartSquareBracket",
+      "key_id": 27,
+      "x": 513.42,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        11
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        123,
+        107,
+        139
+      ],
+      "led_slot": [
+        2,
+        11
+      ]
+    },
+    {
+      "id": "selEndSquareBracket",
+      "label": "EndSquareBracket",
+      "key_id": 28,
+      "x": 551.99,
+      "y": 175.7,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        2,
+        12
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        124,
+        108,
+        140
+      ],
+      "led_slot": [
+        2,
+        12
+      ]
+    },
+    {
+      "id": "selBackslash",
+      "label": "Backslash",
+      "key_id": 29,
+      "x": 590.24,
+      "y": 175.48,
+      "width": 54.55,
+      "height": 35.44,
+      "matrix": [
+        2,
+        13
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        125,
+        109,
+        141
+      ],
+      "led_slot": [
+        2,
+        13
+      ]
+    },
+    {
+      "id": "selCaps",
+      "label": "Caps",
+      "key_id": 30,
+      "x": 70.47,
+      "y": 213.9,
+      "width": 64.86,
+      "height": 35.1,
+      "matrix": [
+        3,
+        0
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        160,
+        144,
+        176
+      ],
+      "led_slot": [
+        3,
+        0
+      ]
+    },
+    {
+      "id": "selA",
+      "label": "A",
+      "key_id": 31,
+      "x": 138.48,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        1
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        161,
+        145,
+        177
+      ],
+      "led_slot": [
+        3,
+        1
+      ]
+    },
+    {
+      "id": "selS",
+      "label": "S",
+      "key_id": 32,
+      "x": 176.95,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        2
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        162,
+        146,
+        178
+      ],
+      "led_slot": [
+        3,
+        2
+      ]
+    },
+    {
+      "id": "selD",
+      "label": "D",
+      "key_id": 33,
+      "x": 215.52,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        3
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        163,
+        147,
+        179
+      ],
+      "led_slot": [
+        3,
+        3
+      ]
+    },
+    {
+      "id": "selF",
+      "label": "F",
+      "key_id": 34,
+      "x": 253.99,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        4
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        164,
+        148,
+        180
+      ],
+      "led_slot": [
+        3,
+        4
+      ]
+    },
+    {
+      "id": "selG",
+      "label": "G",
+      "key_id": 35,
+      "x": 292.45,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        5
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        165,
+        149,
+        181
+      ],
+      "led_slot": [
+        3,
+        5
+      ]
+    },
+    {
+      "id": "selH",
+      "label": "H",
+      "key_id": 36,
+      "x": 331.02,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        6
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        166,
+        150,
+        182
+      ],
+      "led_slot": [
+        3,
+        6
+      ]
+    },
+    {
+      "id": "selJ",
+      "label": "J",
+      "key_id": 37,
+      "x": 369.49,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        7
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        167,
+        151,
+        183
+      ],
+      "led_slot": [
+        3,
+        7
+      ]
+    },
+    {
+      "id": "selK",
+      "label": "K",
+      "key_id": 38,
+      "x": 408.06,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        8
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        168,
+        152,
+        184
+      ],
+      "led_slot": [
+        3,
+        8
+      ]
+    },
+    {
+      "id": "selL",
+      "label": "L",
+      "key_id": 39,
+      "x": 446.53,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        9
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        169,
+        153,
+        185
+      ],
+      "led_slot": [
+        3,
+        9
+      ]
+    },
+    {
+      "id": "selSemiColon",
+      "label": "Semicolon",
+      "key_id": 40,
+      "x": 485.1,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        10
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        170,
+        154,
+        186
+      ],
+      "led_slot": [
+        3,
+        10
+      ]
+    },
+    {
+      "id": "selApostrophe",
+      "label": "Apostrophe",
+      "key_id": 41,
+      "x": 523.57,
+      "y": 213.9,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        3,
+        11
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        171,
+        155,
+        187
+      ],
+      "led_slot": [
+        3,
+        11
+      ]
+    },
+    {
+      "id": "selEnter",
+      "label": "Enter",
+      "key_id": 43,
+      "x": 561.13,
+      "y": 213.8,
+      "width": 85.16,
+      "height": 35.1,
+      "matrix": [
+        3,
+        13
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        173,
+        157,
+        189
+      ],
+      "led_slot": [
+        3,
+        13
+      ]
+    },
+    {
+      "id": "selZ",
+      "label": "Z",
+      "key_id": 46,
+      "x": 157.76,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        2
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        72,
+        56,
+        88
+      ],
+      "led_slot": [
+        4,
+        2
+      ]
+    },
+    {
+      "id": "selLeftShift",
+      "label": "LeftShift",
+      "key_id": 44,
+      "x": 70.58,
+      "y": 252.0,
+      "width": 84.04,
+      "height": 35.1,
+      "matrix": [
+        4,
+        0
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        174,
+        158,
+        190
+      ],
+      "led_slot": [
+        4,
+        0
+      ]
+    },
+    {
+      "id": "selX",
+      "label": "X",
+      "key_id": 47,
+      "x": 196.23,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        3
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        70,
+        54,
+        86
+      ],
+      "led_slot": [
+        4,
+        3
+      ]
+    },
+    {
+      "id": "selC",
+      "label": "C",
+      "key_id": 48,
+      "x": 234.7,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        4
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        68,
+        52,
+        84
+      ],
+      "led_slot": [
+        4,
+        4
+      ]
+    },
+    {
+      "id": "selV",
+      "label": "V",
+      "key_id": 49,
+      "x": 273.27,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        5
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        66,
+        50,
+        82
+      ],
+      "led_slot": [
+        4,
+        5
+      ]
+    },
+    {
+      "id": "selB",
+      "label": "B",
+      "key_id": 50,
+      "x": 311.74,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        6
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        64,
+        48,
+        80
+      ],
+      "led_slot": [
+        4,
+        6
+      ]
+    },
+    {
+      "id": "selN",
+      "label": "N",
+      "key_id": 51,
+      "x": 350.31,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        7
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        30,
+        14,
+        46
+      ],
+      "led_slot": [
+        4,
+        7
+      ]
+    },
+    {
+      "id": "selM",
+      "label": "M",
+      "key_id": 52,
+      "x": 388.78,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        8
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        28,
+        12,
+        44
+      ],
+      "led_slot": [
+        4,
+        8
+      ]
+    },
+    {
+      "id": "selComma",
+      "label": "Comma",
+      "key_id": 53,
+      "x": 427.25,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        9
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        26,
+        10,
+        42
+      ],
+      "led_slot": [
+        4,
+        9
+      ]
+    },
+    {
+      "id": "selDot",
+      "label": "Period",
+      "key_id": 54,
+      "x": 465.82,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        10
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        24,
+        8,
+        40
+      ],
+      "led_slot": [
+        4,
+        10
+      ]
+    },
+    {
+      "id": "selForwardSlash",
+      "label": "ForwardSlash",
+      "key_id": 55,
+      "x": 504.29,
+      "y": 252.0,
+      "width": 35.42,
+      "height": 35.1,
+      "matrix": [
+        4,
+        11
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        22,
+        6,
+        38
+      ],
+      "led_slot": [
+        4,
+        11
+      ]
+    },
+    {
+      "id": "selRightShift",
+      "label": "RightShift",
+      "key_id": 57,
+      "x": 542.86,
+      "y": 252.0,
+      "width": 65.06,
+      "height": 35.1,
+      "matrix": [
+        4,
+        13
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        18,
+        2,
+        34
+      ],
+      "led_slot": [
+        4,
+        13
+      ]
+    },
+    {
+      "id": "selLeftCtrl",
+      "label": "LeftCtrl",
+      "key_id": 58,
+      "x": 70.47,
+      "y": 290.2,
+      "width": 45.67,
+      "height": 35.1,
+      "matrix": [
+        5,
+        0
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        174,
+        158,
+        190
+      ],
+      "led_slot": [
+        5,
+        0
+      ]
+    },
+    {
+      "id": "selWindow",
+      "label": "LeftWin",
+      "key_id": 127,
+      "x": 119.19,
+      "y": 290.2,
+      "width": 45.57,
+      "height": 35.1,
+      "matrix": [
+        5,
+        1
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        172,
+        156,
+        188
+      ],
+      "led_slot": [
+        5,
+        1
+      ]
+    },
+    {
+      "id": "selLeftAlt",
+      "label": "LeftAlt",
+      "key_id": 60,
+      "x": 167.81,
+      "y": 290.2,
+      "width": 45.57,
+      "height": 35.1,
+      "matrix": [
+        5,
+        2
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        170,
+        154,
+        186
+      ],
+      "led_slot": [
+        5,
+        2
+      ]
+    },
+    {
+      "id": "selSpace",
+      "label": "Space",
+      "key_id": 61,
+      "x": 216.43,
+      "y": 290.2,
+      "width": 236.19,
+      "height": 35.1,
+      "matrix": [
+        5,
+        4
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        166,
+        150,
+        182
+      ],
+      "led_slot": [
+        5,
+        4
+      ]
+    },
+    {
+      "id": "selDelete",
+      "label": "Delete",
+      "key_id": 76,
+      "x": 648.42,
+      "y": 137.6,
+      "width": 35.83,
+      "height": 35.3,
+      "matrix": [
+        1,
+        15
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        126,
+        110,
+        142
+      ],
+      "led_slot": [
+        1,
+        15
+      ]
+    },
+    {
+      "id": "selPageDown",
+      "label": "PageDown",
+      "key_id": 86,
+      "x": 648.42,
+      "y": 213.4,
+      "width": 35.83,
+      "height": 35.2,
+      "matrix": [
+        3,
+        14
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        175,
+        159,
+        191
+      ],
+      "led_slot": [
+        3,
+        14
+      ]
+    },
+    {
+      "id": "selPageUp",
+      "label": "PageUp",
+      "key_id": 85,
+      "x": 648.42,
+      "y": 175.9,
+      "width": 35.83,
+      "height": 35.2,
+      "matrix": [
+        2,
+        14
+      ],
+      "button": null,
+      "controller": 0,
+      "rgb": [
+        127,
+        111,
+        143
+      ],
+      "led_slot": [
+        2,
+        14
+      ]
+    },
+    {
+      "id": "selInsert",
+      "label": "Insert",
+      "key_id": 75,
+      "x": 648.42,
+      "y": 251.6,
+      "width": 35.83,
+      "height": 35.2,
+      "matrix": [
+        3,
+        15
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        112,
+        96,
+        128
+      ],
+      "led_slot": [
+        4,
+        15
+      ]
+    },
+    {
+      "id": "selUpArrow",
+      "label": "UpArrow",
+      "key_id": 83,
+      "x": 610.56,
+      "y": 251.6,
+      "width": 35.83,
+      "height": 35.2,
+      "matrix": [
+        4,
+        14
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        16,
+        0,
+        32
+      ],
+      "led_slot": [
+        4,
+        14
+      ]
+    },
+    {
+      "id": "selRightArrow",
+      "label": "RightArrow",
+      "key_id": 89,
+      "x": 648.72,
+      "y": 290.4,
+      "width": 35.12,
+      "height": 34.5,
+      "matrix": [
+        5,
+        13
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        114,
+        98,
+        130
+      ],
+      "led_slot": [
+        5,
+        13
+      ]
+    },
+    {
+      "id": "selDownArrow",
+      "label": "DownArrow",
+      "key_id": 84,
+      "x": 610.86,
+      "y": 290.4,
+      "width": 35.12,
+      "height": 34.5,
+      "matrix": [
+        5,
+        12
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        116,
+        100,
+        132
+      ],
+      "led_slot": [
+        5,
+        12
+      ]
+    },
+    {
+      "id": "selLeftArrow",
+      "label": "LeftArrow",
+      "key_id": 79,
+      "x": 572.49,
+      "y": 290.4,
+      "width": 35.12,
+      "height": 34.5,
+      "matrix": [
+        5,
+        11
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        118,
+        102,
+        134
+      ],
+      "led_slot": [
+        5,
+        11
+      ]
+    },
+    {
+      "id": "selRightCtrl",
+      "label": "RightCtrl",
+      "key_id": 64,
+      "x": 533.01,
+      "y": 290.4,
+      "width": 35.12,
+      "height": 34.5,
+      "matrix": [
+        5,
+        10
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        120,
+        104,
+        136
+      ],
+      "led_slot": [
+        5,
+        10
+      ]
+    },
+    {
+      "id": "selFunction",
+      "label": "Fn",
+      "key_id": 59,
+      "x": 494.64,
+      "y": 290.4,
+      "width": 35.12,
+      "height": 34.5,
+      "matrix": [
+        5,
+        8
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        124,
+        108,
+        140
+      ],
+      "led_slot": [
+        5,
+        8
+      ]
+    },
+    {
+      "id": "selRightAlt",
+      "label": "RightAlt",
+      "key_id": 62,
+      "x": 456.17,
+      "y": 290.4,
+      "width": 35.12,
+      "height": 34.5,
+      "matrix": [
+        5,
+        7
+      ],
+      "button": null,
+      "controller": 1,
+      "rgb": [
+        126,
+        110,
+        142
+      ],
+      "led_slot": [
+        5,
+        7
+      ]
+    },
+    {
+      "id": "selMediaPause",
+      "label": "MediaPause",
+      "key_id": 249,
+      "x": 613.19,
+      "y": 96.5,
+      "width": 32.48,
+      "height": 32.0,
+      "matrix": null,
+      "button": 1,
+      "controller": 0,
+      "rgb": [
+        77,
+        61,
+        93
+      ],
+      "led_slot": [
+        0,
+        13
+      ]
+    },
+    {
+      "id": "selMediaMute",
+      "label": "MediaMute",
+      "key_id": 200,
+      "x": 646.69,
+      "y": 96.0,
+      "width": 32.48,
+      "height": 32.0,
+      "matrix": null,
+      "button": 0,
+      "controller": 0,
+      "rgb": [
+        29,
+        13,
+        45
+      ],
+      "led_slot": [
+        0,
+        14
+      ]
+    }
+  ]
+}

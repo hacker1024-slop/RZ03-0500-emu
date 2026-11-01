@@ -13,16 +13,19 @@ readme = "README.md"
 dependencies = ["pyrenode3 @ git+https://github.com/antmicro/pyrenode3.git@27362def38ce409b95c972ce494cd8517dac17a4"]
 
 [project.optional-dependencies]
+gui = ["PySide6>=6.8,<7"]
 dev = ["pytest>=8", "ruff>=0.9", "build>=1"]
 
 [project.scripts]
 razer-emu = "razer_emu_cli.main:main"
+razer-emu-gui = "razer_emu_gui.main:main"
 
 [tool.setuptools.packages.find]
-include = ["razer_emu", "razer_emu_cli"]
+include = ["razer_emu", "razer_emu_cli", "razer_emu_gui"]
 
 [tool.setuptools.package-data]
 razer_emu = ["platforms/*.repl", "platforms/*.cs"]
+razer_emu_gui = ["qml/*.qml", "assets/*.json", "assets/*.svg"]
 
 [tool.ruff]
 line-length = 100
