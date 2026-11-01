@@ -9,3 +9,5 @@ dist/
 *.elf
 *.hex
 captures/
+*.dll
+*.exe

@@ -116,6 +116,24 @@ The reusable entry point is `razer_emu.usbip.UsbIpServer(keyboard, enumeration)`
 
 Protocol and network references: [Linux USB/IP specification](https://docs.kernel.org/usb/usbip_protocol.html), [Linux VHCI address handling](https://github.com/torvalds/linux/blob/master/drivers/usb/usbip/vhci_hcd.c), [QEMU user networking](https://www.qemu.org/docs/master/system/devices/net.html).
 
+### Querying through the original Razer updater DLL
+
+The optional [native query example](examples/razer_updater_query.c) calls `OpenDevice`, `GetFWVersion` and `CloseDevice` from an original `FWUpdaterDLL.dll`. Obtain your own DLL from the BlackWidow V4 75% updater; it is not included. The example queries the version through Razer's HID implementation and contains no erase/program calls.
+
+Build it as a **32-bit Windows executable** to match that DLL. For example, with MinGW-w64 from this checkout:
+
+```sh
+i686-w64-mingw32-gcc -O2 examples/razer_updater_query.c -o razer_updater_query.exe
+```
+
+Attach the emulated device inside the guest using the USB/IP steps above, put the executable and DLL in the same working directory, and run:
+
+```text
+razer_updater_query.exe
+```
+
+An optional argument selects a different DLL path. A successful query prints `Firmware version: 1.1.1` for the tested capture; other firmware versions are printed as returned. The native example has passed with the original Razer DLL under Wine 11.19 in a QEMU Linux guest, using the captured bootloader/application and USB/IP. This verifies that query path, while full Windows/Synapse compatibility remains unverified.
+
 ### Starting from the bootloader
 
 The default start recreates the bootloader's application handoff in SRAM. To execute the captured bootloader itself, provide a fully verified 32 KiB capture at flash address zero:
