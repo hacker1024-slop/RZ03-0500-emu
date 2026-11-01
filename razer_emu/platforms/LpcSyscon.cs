@@ -104,8 +104,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     {
         public override void Reset()
         {
+            // AOREG1 survives pin/software reset; constructing a new virtual
+            // board supplies the power-on default. No brownout is modeled.
+            values.TryGetValue(0x84, out var retained);
             base.Reset();
             values.Clear();
+            values[0x84] = retained;
             values[0x08] = 0; // RESETCTRL
             values[0x30] = 0; // BODVBAT
             values[0x10] = 0x010C4E68; // SDK fallback DCDC0

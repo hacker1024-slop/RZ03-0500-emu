@@ -41,6 +41,20 @@ def test_unknown_mmio_is_reported_and_stops_run(cpu_image):
             keyboard.run_for(100)
 
 
+def test_pmc_always_on_storage_survives_mcu_reset_but_not_new_board(cpu_image):
+    firmware = Firmware.load(cpu_image)
+    with Keyboard(firmware) as keyboard:
+        bus, address = keyboard._bus, 0x40020084
+        assert bus.ReadDoubleWord(address) == 0
+        bus.WriteDoubleWord(address, 0xA55A1234)
+        assert bus.ReadDoubleWord(0x50020084) == 0xA55A1234
+        keyboard.reset()
+        assert bus.ReadDoubleWord(address) == 0xA55A1234
+        assert keyboard.state().stopped_reason is None
+    with Keyboard(firmware) as keyboard:
+        assert keyboard._bus.ReadDoubleWord(address) == 0
+
+
 def test_original_application_needs_initialized_nvram(cpu_image):
     path = os.environ.get("RAZER_TEST_FIRMWARE")
     if not path:
@@ -166,6 +180,32 @@ def test_watchdog_feed_and_expiration_are_virtual_time_events(cpu_image):
             bus.WriteDoubleWord(base + 8, value)
         assert keyboard.run_for(500).stopped_reason is None
         assert keyboard.run_for(700).stopped_reason == "watchdog_expired"
+
+
+def test_original_ezh_irq_handler_acknowledges_shared_ram_handshake(cpu_image):
+    path = os.environ.get("RAZER_TEST_FIRMWARE")
+    dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
+    if not path or not dumps:
+        pytest.skip("Set private firmware and flash captures for original-handler validation")
+    regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
+    with Keyboard(Firmware.load(path), flash_regions=regions) as keyboard:
+        assert keyboard.run_for(50_000).stopped_reason is None
+        bus = keyboard._bus
+        assert bus.ReadDoubleWord(0xE000E100) & (1 << 30)
+        # Hold the scanner stopped, set EX, and request the ordinary mailbox
+        # completion IRQ. The original Thumb ISR must clear EX and publish its
+        # matrix-ready flag; neither response is supplied by the peripheral.
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0012)
+        bus.WriteByte(0x20024E52, 0)
+        bus.WriteDoubleWord(0x4001D040, (bus.ReadDoubleWord(0x4001D040) & ~3) | 2)
+        bus.WriteDoubleWord(0x4001D044, 0)
+        assert bus.ReadDoubleWord(0xE000E200) & (1 << 30)
+        for _ in range(500):
+            assert keyboard.step().stopped_reason is None
+            if bus.ReadByte(0x20024E52):
+                break
+        assert bus.ReadByte(0x20024E52) == 1
+        assert bus.ReadDoubleWord(0x4001D024) & 2 == 0
 
 
 def test_ezh_mailbox_word_addressing_and_register_operations(cpu_image):
@@ -324,9 +364,8 @@ def test_ezh_interrupt_channels_and_mailbox_handshake(cpu_image):
         bus = keyboard._bus
         ezh = keyboard._ezh
         nvic = keyboard._machine.sysbus.nvic.internal
-        # Explicit test wiring: the production platform's SYSCON hijack router
-        # is not yet modeled. NVIC pending bits prove pulses reach consumers.
-        ezh.IRQ.Connect(nvic, 1)
+        # The common output uses the board's IRQ30 connection. Additional
+        # channel outputs get explicit synthetic consumers for this test.
         for channel, interrupt in ((0, 2), (1, 3), (2, 4), (23, 5)):
             ezh.Connections[channel].Connect(nvic, interrupt)
         code = 0x20028000
@@ -335,19 +374,20 @@ def test_ezh_interrupt_channels_and_mailbox_handshake(cpu_image):
         bus.WriteDoubleWord(0x4001D020, code)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
         ezh.AdvanceCycles(1)
-        assert bus.ReadDoubleWord(0xE000E200) & 0x3E == 0x2E
-        bus.WriteDoubleWord(0xE000E280, 0x3E)
+        mask, common = (1 << 30) | 0x3C, 1 << 30
+        assert bus.ReadDoubleWord(0xE000E200) & mask == common | 0x2C
+        bus.WriteDoubleWord(0xE000E280, mask)
         ezh.AdvanceCycles(1)
-        assert bus.ReadDoubleWord(0xE000E200) & 0x3E == 2
-        bus.WriteDoubleWord(0xE000E280, 0x3E)
+        assert bus.ReadDoubleWord(0xE000E200) & mask == common
+        bus.WriteDoubleWord(0xE000E280, mask)
         for mode in (0, 1, 3):
             bus.WriteDoubleWord(0x4001D040, 0x20029000 | mode)
             bus.WriteDoubleWord(0x4001D044, 0xA5A50000 | mode)
-            assert bus.ReadDoubleWord(0xE000E200) & 2 == 0
+            assert bus.ReadDoubleWord(0xE000E200) & common == 0
         bus.WriteDoubleWord(0x4001D040, 0x20029002)
         bus.WriteDoubleWord(0x4001D044, 0xDEADBEEF)
         assert bus.ReadDoubleWord(0x4001D044) == 0xDEADBEEF
-        assert bus.ReadDoubleWord(0xE000E200) & 2 == 2
+        assert bus.ReadDoubleWord(0xE000E200) & common == common
         assert keyboard.state().stopped_reason is None
 
 

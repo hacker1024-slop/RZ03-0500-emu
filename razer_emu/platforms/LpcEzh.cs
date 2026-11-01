@@ -80,7 +80,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public bool BusFault { get; private set; }
         public bool UnsupportedInstruction { get; private set; }
         public uint FaultAddress { get; private set; }
-        // Platform-specific SYSCON hijack routing must connect these outputs.
+        // LPC55 common interrupt; additional channel routing is platform-specific.
         // The common output also pulses for a mailbox write in handshake mode.
         public GPIO IRQ { get; } = new GPIO();
         public IReadOnlyDictionary<int, IGPIO> Connections { get; }
