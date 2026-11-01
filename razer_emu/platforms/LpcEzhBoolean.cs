@@ -10,12 +10,15 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void Reset()
         {
             inputs = previousInputs = sticky = selection = mode = Results = 0;
+            sampleValid = false;
         }
         public void SetInput(int number, bool value)
         {
             if(number < 0 || number >= 8) throw new ArgumentOutOfRangeException(nameof(number));
             var bit = 1U << number;
-            inputs = value ? inputs | bit : inputs & ~bit;
+            var next = value ? inputs | bit : inputs & ~bit;
+            if(next != inputs) sampleValid = false;
+            inputs = next;
         }
         public uint Selection
         {
@@ -26,16 +29,19 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     status |= ((inputs >> (int)((selection >> (8 + 3 * i)) & 7)) & 1) << i;
                 return selection | status;
             }
-            set { selection = value & 0xFFFFFF00; Results = 0; }
+            set { selection = value & 0xFFFFFF00; Results = 0; sampleValid = false; }
         }
         public uint Mode
         {
             get => mode;
-            set { mode = value; sticky = 0; Results = 0; }
+            set { mode = value; sticky = 0; Results = 0; sampleValid = false; }
         }
         public uint Results { get; private set; }
+        public bool Dirty => !sampleValid;
+        public void Invalidate() { sampleValid = false; }
         public uint Sample(uint pendingTrap)
         {
+            if(sampleValid && sampledInputs == inputs && sampledTrap == pendingTrap) return pendingTrap;
             // Polarity chooses which physical edge latches into pending status;
             // it does not invert a software-written slice override (4.2.9).
             var transitions = inputs ^ previousInputs;
@@ -77,10 +83,14 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     chain = true;
                 }
             }
+            var inputChanged = previousInputs != inputs;
             previousInputs = inputs;
             Results = outputs;
+            sampledInputs = inputs; sampledTrap = pendingTrap; sampleValid = !inputChanged;
             return pendingTrap;
         }
+        private uint sampledInputs, sampledTrap;
+        private bool sampleValid;
         private uint inputs, previousInputs, sticky, selection, mode;
     }
 }

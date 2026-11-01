@@ -26,6 +26,16 @@ def test_cortex_m33_stack_limit_fpu_and_reset(cpu_image):
         keyboard.state()
 
 
+@pytest.mark.parametrize("duration", [11, 17, 1007])
+def test_bounded_runs_end_at_partial_sync_quantum(cpu_image, duration):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        for _ in range(3):
+            before = keyboard.state().elapsed_us
+            state = keyboard.run_for(duration)
+            assert state.stopped_reason is None
+            assert state.elapsed_us == before + duration
+
+
 def test_unknown_mmio_is_reported_and_stops_run(cpu_image):
     # Thumb: ldr r0,[pc,#4]; ldr r1,[r0]; b .; nop; .word 0x400ff000
     image = bytearray(Firmware.load(cpu_image).image)

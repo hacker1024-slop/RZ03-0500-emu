@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 using System;
+using System.Runtime.InteropServices;
+using Antmicro.Renode.Peripherals.Memory;
 using System.Collections.Generic;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Logging;
@@ -15,9 +17,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     // initialization; no instruction or firmware bytes are patched.
     public class RazerLpcEzh : RazerLpcAnalog, INumberedGPIOOutput, IGPIOReceiver
     {
-        public RazerLpcEzh(IMachine machine, RazerLpcGpio gpio)
+        public RazerLpcEzh(IMachine machine, RazerLpcGpio gpio, MappedMemory sram)
         {
             this.machine = machine;
+            this.sram = sram;
             // Unattached contacts still expose the actual shared pin levels.
             // A matrix attachment replaces these delegates with its contact network.
             InputPins = (output, direction) => gpio.ReadSharedPort0(output, direction);
@@ -25,7 +28,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             var channels = new Dictionary<int, IGPIO>();
             for(var i = 0; i < 24; i++) channels[i] = new GPIO();
             Connections = channels;
-            clock = new LimitTimer(machine.ClockSource, 96000000, this, "ezh", limit: 96,
+            // One callback per microsecond, executing all 96 EZH clock cycles.
+            clock = new LimitTimer(machine.ClockSource, 1000000, this, "ezh", limit: 1,
                 eventEnabled: true, workMode: WorkMode.Periodic);
             clock.LimitReached += () => AdvanceCycles(96);
         }
@@ -36,6 +40,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             Array.Clear(registers, 0, registers.Length);
             Instructions = 0; Running = false; clock?.Reset();
             pc = 0; flagsMask = 0; carry = false; Cycles = 0;
+            control = breakpoint = breakpointHandler = 0;
+            sramPointers = null;
             heartbeatPeriod = heartbeatLeft = 0; waitForBeat = syncToBeat = false;
             branches?.Clear();
             BusFault = false; FaultAddress = 0; UnsupportedInstruction = false;
@@ -59,7 +65,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 if((value >> 16) != 0xC0DE) return;
                 var wasRunning = Running;
-                values[0x24] = value & 0x1F;
+                values[0x24] = control = value & 0x1F;
                 Running = (value & 1) != 0;
                 if(Running && !wasRunning)
                 {
@@ -72,6 +78,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 return;
             }
             base.WriteDoubleWord(offset, value);
+            if(offset == 0x30) breakpoint = value;
+            if(offset == 0x34) breakpointHandler = value;
+            if(offset == 0x48) detector.Invalidate();
             if(offset == 0x44 && (values[0x40] & 3) == 2) IRQ.Blink();
         }
         public Func<uint, uint, uint> InputPins { get; set; }
@@ -98,7 +107,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             for(var i = 0; i < count && Running; i++)
             {
                 Cycles++;
-                values[0x48] = detector.Sample(values[0x48]);
+                if(detector.Dirty) values[0x48] = detector.Sample(values[0x48]);
                 var beat = heartbeatPeriod == 0 || --heartbeatLeft == 0;
                 if(beat) heartbeatLeft = heartbeatPeriod;
                 if((waitForBeat || syncToBeat) && !beat) continue;
@@ -115,9 +124,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     // breakpoint handler. No call/RA update is implied. Branches
                     // already resolved by CompleteInstruction cannot spuriously
                     // trigger a breakpoint on a flushed instruction.
-                    if(pc == values[0x30])
+                    if(pc == breakpoint)
                     {
-                        pc = values[0x34];
+                        pc = breakpointHandler;
                         branches.Clear();
                         instructionAddress = pc;
                     }
@@ -290,11 +299,20 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private uint ReadWord(uint address)
         {
             accessAddress = address;
+            // SRAM is the same mapped storage used by the ARM CPU. All writes
+            // still use the bus, preserving translated-code invalidation; flash
+            // and peripheral reads retain their bus/ECC/fault behavior.
+            if(address >= 0x20000000 && address <= 0x2002FFFC && (address & 3) == 0)
+                return unchecked((uint)Marshal.ReadInt32(SramPointer(address),
+                    (int)((address - 0x20000000) % sram.SegmentSize)));
             return machine.SystemBus.ReadDoubleWord(address);
         }
         private byte ReadByte(uint address)
         {
             accessAddress = address;
+            if(address >= 0x20000000 && address < 0x20030000)
+                return Marshal.ReadByte(SramPointer(address),
+                    (int)((address - 0x20000000) % sram.SegmentSize));
             return machine.SystemBus.ReadByte(address);
         }
         private void WriteWord(uint address, uint value)
@@ -310,7 +328,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private void CompleteInstruction()
         {
             Instructions++;
-            foreach(var branch in branches) branch.Remaining--;
+            for(var i = 0; i < branches.Count; i++)
+            {
+                var branch = branches[i];
+                branch.Remaining--;
+                branches[i] = branch;
+            }
             if(branches.Count != 0 && branches[0].Remaining == 0)
             {
                 pc = branches[0].Target;
@@ -354,7 +377,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             if(register == 13)
             {
-                if(flags) branches.Add(new ScheduledBranch { Target = value & ~3U });
+                if(flags) branches.Add(new ScheduledBranch { Target = value & ~3U, Remaining = 3 });
                 else { pc = value & ~3U; branches.Clear(); }
             }
             else
@@ -379,9 +402,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             case 0: case 10: return true;
             case 11: return (flagsMask & (1 << 2)) != 0;
             case 12: return detector.Results == 0;
-            case 13: return (values[0x24] & 2) == 0;
+            case 13: return (control & 2) == 0;
             case 14: return detector.Results != 0;
-            case 15: return (values[0x24] & 2) != 0;
+            case 15: return (control & 2) != 0;
             default: Fail(pc - 4, ReadWord(pc - 4)); return false;
             }
         }
@@ -405,6 +428,20 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             pc = address; Running = false; clock.Enabled = false;
         }
         private readonly IMachine machine;
+        private IntPtr SramPointer(uint address)
+        {
+            if(sramPointers == null) sramPointers = new IntPtr[sram.SegmentCount];
+            var index = (int)((address - 0x20000000) / sram.SegmentSize);
+            if(sramPointers[index] == IntPtr.Zero)
+            {
+                sram.TouchSegment(index);
+                sramPointers[index] = sram.GetSegment(index);
+            }
+            return sramPointers[index];
+        }
+        private IntPtr[] sramPointers;
+        private uint control, breakpoint, breakpointHandler;
+        private readonly MappedMemory sram;
         private readonly LimitTimer clock;
         private readonly uint[] registers = new uint[16];
         private readonly RazerEzhBoolean detector = new RazerEzhBoolean();
@@ -412,10 +449,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private uint loopStart, loopEnd, loopRemaining;
         private uint holdWord, holdAddress, holdTable;
         private readonly List<ScheduledBranch> branches = new List<ScheduledBranch>();
-        private sealed class ScheduledBranch
+        private struct ScheduledBranch
         {
             public uint Target;
-            public int Remaining = 3;
+            public int Remaining;
         }
         private ushort flagsMask;
         private bool waitForBeat, syncToBeat, holding;

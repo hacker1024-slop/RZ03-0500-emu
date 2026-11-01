@@ -6,6 +6,8 @@ A firmware-driven emulator for the Razer BlackWidow V4 75% (LPC5528 / Cortex-M33
 
 This project is AI-generated, experimental, unofficial, and unaffiliated with Razer. Peripheral behavior is incomplete and cannot establish that firmware modifications will work on physical hardware. The emulator itself does not open or modify a physical keyboard.
 
+Execution is currently slower than real time. The native C# execution runner reduces Python interop overhead while checking faults every 10 virtual microseconds; it does not change the configured CPU speed or firmware. Further backend optimization is in progress.
+
 ## Requirements and installation
 
 - Python 3.11 or newer and Renode 1.17.0 (.NET build). The tested environment is Linux, Python 3.13, .NET 10, Renode 1.17.0.

@@ -105,6 +105,7 @@ class Keyboard:
                     "LpcEzhBoolean.cs",
                     "LpcEzh.cs",
                     "DiodeMatrix.cs",
+                    "ExecutionRunner.cs",
                 ):
                     model = files("razer_emu").joinpath("platforms/" + name)
                     _, error = Monitor().execute(f"include @{model}")
@@ -117,7 +118,20 @@ class Keyboard:
             self._modeled_peripherals = tuple(
                 getattr(self._machine.sysbus, name).internal for name in self._models
             )
+            from Antmicro.Renode.Peripherals.Miscellaneous import RazerLpcAnalog
+            from Antmicro.Renode.Utilities import RazerExecutionRunner
             from System import Array, Byte
+
+            self._runner = RazerExecutionRunner(
+                self._engine,
+                self._machine.internal,
+                self._cpu,
+                Array[RazerLpcAnalog](
+                    [p for p in self._modeled_peripherals if isinstance(p, RazerLpcAnalog)]
+                ),
+                self._machine.sysbus.syscon.internal,
+                self._machine.sysbus.gpio.internal,
+            )
 
             flash = self._machine.sysbus.flash.internal
             for region in flash_regions:
@@ -290,7 +304,6 @@ class Keyboard:
     def run_for(self, microseconds):
         """Advance bounded virtual time, checking faults and missing models every 10 us."""
         from Antmicro.Renode.Peripherals.CPU import ExecutionMode
-        from Antmicro.Renode.Time import TimeInterval
 
         if not isinstance(microseconds, int) or not 1 <= microseconds <= 10_000_000:
             raise ValueError("Duration must be an integer from 1 to 10,000,000 microseconds")
@@ -298,14 +311,27 @@ class Keyboard:
         self._cpu.ExecutionMode = ExecutionMode.Continuous
         remaining = microseconds
         while remaining and not self._reason:
-            quantum = min(10, remaining)
+            quantum = remaining
             if self._input_playback is not None:
                 self._input_playback._apply_due(self._elapsed_us)
                 if self._input_playback is not None:
                     quantum = min(quantum, self._input_playback.next_due_us - self._elapsed_us)
-            self._engine.RunFor(TimeInterval.FromMicroseconds(quantum))
-            self._elapsed_us += quantum
-            remaining -= quantum
+            from Antmicro.Renode.Peripherals.LED import RazerChroma192
+            from System import Array
+
+            advanced = int(
+                self._runner.Run(
+                    quantum,
+                    self._initial_reads,
+                    self._initial_writes,
+                    self._watchdog,
+                    self._ezh,
+                    self._usb_device,
+                    Array[RazerChroma192]([c._backend for c in self._lighting.values()]),
+                )
+            )
+            self._elapsed_us += advanced
+            remaining -= advanced
             self.state()
         if not self._reason and self._input_playback is not None:
             self._input_playback._apply_due(self._elapsed_us)

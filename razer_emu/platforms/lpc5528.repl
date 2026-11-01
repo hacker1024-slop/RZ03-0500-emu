@@ -75,6 +75,7 @@ ezh: Miscellaneous.RazerLpcEzh @ {
         sysbus 0x5001d000
     }
     gpio: gpio
+    sram: sram
     IRQ -> nvic@30
 ctimer3: Timers.RazerLpcTimer @ {
         sysbus 0x40029000;
