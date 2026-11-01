@@ -2,7 +2,7 @@
 
 A firmware-driven emulator for the Razer BlackWidow V4 75% (LPC5528 / Cortex-M33), built on [Renode](https://renode.io/) and [pyrenode3](https://github.com/antmicro/pyrenode3).
 
-**Work in progress. Matrix key input, physical lighting mapping and Razer Synapse support remain unfinished.** The original application executes without instruction patches, enumerates on an in-process virtual USB host, returns its HID descriptors, and answers a Razer firmware-version query. Normal encoder and independent-button inputs produce firmware-generated volume and mute reports. Unsupported peripheral accesses stop execution with diagnostics. Enumeration or a completed time slice alone does not establish a working keyboard.
+**Work in progress. Physical key/RGB mapping and full Windows/Razer Synapse compatibility remain unfinished.** The original application executes without instruction patches, enumerates on an in-process virtual USB host, returns its HID descriptors, and answers a Razer firmware-version query. Normal matrix, encoder and independent-button inputs produce firmware-generated key, volume and mute reports. Matrix verification currently covers A-key press/release with the captured default binding. Unsupported peripheral accesses stop execution with diagnostics. Enumeration or a completed time slice alone does not establish a working keyboard.
 
 This project is AI-generated, experimental, unofficial, and unaffiliated with Razer. Peripheral behavior is incomplete and cannot establish that firmware modifications will work on physical hardware. The emulator itself does not open or modify a physical keyboard.
 
@@ -66,7 +66,7 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 `Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
 
-`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical matrix key mapping and normal matrix input reporting remain incomplete.
+`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping remains incomplete. Normal firmware-generated matrix press/release is verified for electrical contact (3, 1), bound to A in the private capture.
 
 USB control requests are available through `keyboard.usb`:
 
@@ -108,7 +108,7 @@ usbip port
 sudo usbip detach -p 0
 ```
 
-Linux in QEMU has successfully enumerated this server with the private 1.1.1 image and bound all five HID interfaces, creating keyboard, mouse and hidraw devices. A version query through the guest HID driver also returned a valid Razer 00/87 reply reporting 1.1.1. A cold-boot library run driving encoder phases and the independent mute contact also delivered Linux `KEY_VOLUMEDOWN`, `KEY_VOLUMEUP` and `KEY_MUTE` press/release events through USB/IP. Normal matrix-generated key reports remain blocked by the scanner startup issue.
+Linux in QEMU has successfully enumerated this server with the private 1.1.1 image and bound all five HID interfaces, creating keyboard, mouse and hidraw devices. A version query through the guest HID driver also returned a valid Razer 00/87 reply reporting 1.1.1. A cold-boot library run driving encoder phases and the independent mute contact also delivered Linux `KEY_VOLUMEDOWN`, `KEY_VOLUMEUP` and `KEY_MUTE` press/release events through USB/IP. Normal matrix A-key reports are also verified through the in-process USB host; guest matrix-event verification is a separate check.
 
 For a Windows QEMU guest, install a USB/IP client such as [usbip-win2](https://github.com/vadimgrn/usbip-win2) inside the guest, following its driver installation instructions. Its commands are `usbip.exe list -r 10.0.2.2` and `usbip.exe attach -r 10.0.2.2 -b 1-1`. Then inspect Device Manager and run Razer software in the guest. Windows and Synapse compatibility have **not** been verified. The bridge supports USB/IP 1.1.1 control transfers and interrupt IN, including STALL, short packets and queued-request cancellation; other transfer types are unsupported.
 
@@ -149,13 +149,13 @@ razer-emu application.bin \
 
 The bootloader importer rejects holes, wrong region boundaries, invalid vectors and capture hash mismatches. No bootloader image is included. The library equivalent is `Keyboard(firmware, bootloader=Bootloader.load_dump(directory), flash_regions=regions)`; import `Bootloader` from `razer_emu`. This starts at the flash reset vector with zeroed SRAM and lets the original bootloader load and enter the application. In this mode, `reset()` preserves emulated flash programming and re-enters the bootloader. It does not recreate the MCU's internal ROM boot process or analog power-on timing.
 
-The complete private bootloader and 1.1.1 application have passed cold boot and USB enumeration through this path. The unresolved EZH HOLD remains, so cold boot does not yet establish working normal key input. `--bootloader-dump` can also be combined with `--usbip`.
+The complete private bootloader and 1.1.1 application have passed cold boot and USB enumeration through this path. Normal A-key press/release is verified after both application handoff and this complete bootloader path. `--bootloader-dump` can also be combined with `--usbip`.
 
 ### Matrix contacts
 
-A contact model can be attached before execution with `matrix = keyboard.attach_matrix()`. It uses the eight row bits and sixteen column bits recovered from the EZH program. `matrix.press(row, column)`, `matrix.release(row, column)` and `matrix.set_key(row, column, pressed)` update ideal active-low, diode-isolated contacts. Coordinates range from row 0–7 and column 0–15. `matrix.pressed` returns an immutable set of held coordinates; contacts stay held across MCU reset. After attachment, the view is also available as `keyboard.matrix`.
+A contact model can be attached before execution with `matrix = keyboard.attach_matrix()`. It uses the eight row bits and sixteen column bits recovered from the EZH program. `matrix.press(row, column)`, `matrix.release(row, column)` and `matrix.set_key(row, column, pressed)` update ideal active-low, diode-isolated contacts. Coordinates range from row 0–7 and column 0–15. `matrix.pressed` returns an immutable set of held coordinates; contacts stay held across MCU reset. After attachment, the view is also available as `keyboard.matrix`. Without a contact network, EZH still reads shared GPIO input levels and IOCON pull-ups; unconnected inputs are not forced low.
 
-These coordinates are electrical scan positions. IOCON selects CPU GPIO (function 0) or EZH (function 15) as the driver of each matrix row; both input paths observe the shared contacts. Other alternate functions do not drive the modeled matrix. Physical matrix key/HID mapping remains incomplete. Normal firmware startup still reaches the unresolved EZH HOLD checkpoint, so attaching contacts does not yet produce USB key events. Matrix tests verify input paths, pin selection and row scanning. Separate private component probes can execute the original CPU and EZH row routines, but selecting those routines directly is not a completed firmware boot.
+These coordinates are electrical scan positions. IOCON selects CPU GPIO (function 0) or EZH (function 15) as the driver of each matrix row; both input paths observe the shared contacts. Other alternate functions do not drive the modeled matrix. Physical matrix key/HID mapping remains incomplete. With the captured default binding, contact (3, 1) produces A-key press and release reports on endpoint `0x81` after normal startup. The regression covers application handoff and complete bootloader execution, verifies the application bytes remain unchanged, and uses no scanner-entry override or ready-flag writes. Matrix tests also cover input paths, pin selection and electrical row scanning; the full physical layout has not been verified.
 
 ### Media-wheel phases
 
@@ -218,13 +218,13 @@ To include execution of your private application image:
 RAZER_TEST_FIRMWARE=/path/to/application.bin python -m pytest --run-engine
 ```
 
-The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. USB tests cover packet DMA, short transfers, completion/abort behavior and virtual deadlines. Private-image tests target application 1.1.1 and validate descriptor reads, configuration, STALL recovery and a 90-byte Razer feature-report exchange; a normal-boot input test validates volume and mute reports from encoder phases and button contacts with the captured default media bindings. Matrix key reporting remains unverified. Set `RAZER_TEST_BOOTLOADER_DUMP` to a complete bootloader capture to include native cold-boot/reset validation. Set `RAZER_TEST_FLASH_DUMPS` to verified capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
+The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. USB tests cover packet DMA, short transfers, completion/abort behavior and virtual deadlines. Private-image tests target application 1.1.1 and validate descriptor reads, configuration, STALL recovery and a 90-byte Razer feature-report exchange; normal-boot input tests validate matrix key, volume and mute reports from encoder phases and button contacts with the captured default media bindings. Normal matrix A-key press/release is tested through both application handoff and complete bootloader startup. Set `RAZER_TEST_BOOTLOADER_DUMP` to a complete bootloader capture to include native cold-boot/reset validation. Set `RAZER_TEST_FLASH_DUMPS` to verified capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
 
 ## Remaining milestones
 
-1. Complete MCU/board peripheral behavior and establish reproducible application boot.
-2. Recover matrix, encoder and LED wiring; expose input and output events through the core.
-3. Complete USB timing and interrupt/HID traffic, including input generated by the original scanner.
-4. **Last:** export that controller through USB/IP and validate real Razer software in a QEMU Windows guest. USB/IP forwarding now passes Linux guest HID enumeration; Windows and Razer software validation remain.
+1. Extend normal matrix-input validation to more bindings, chords, rollover and reset.
+2. Recover physical key/RGB wiring and encoder detent/direction mapping.
+3. Complete remaining peripheral and USB power-state behavior.
+4. Validate matrix events through a guest and full Razer software in a QEMU Windows guest. Linux USB/IP enumeration, media events and the original updater DLL’s version query under Wine already pass; full Windows/Synapse operation remains unverified.
 
 MIT licensed. Third-party components retain their respective licenses.

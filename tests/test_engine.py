@@ -516,7 +516,8 @@ def test_ezh_boolean_modes_sticky_clear_and_mux_status(cpu_image):
             detector.Reset()
             detector.Selection = (3 << 8) | 0xFF  # slice 0 observes input 3
             assert detector.Selection == 3 << 8  # low status bits are read-only
-            detector.Mode = 1 | (mode << 8)
+            # Suppress the otherwise constant-true trailing AND term.
+            detector.Mode = 1 | (mode << 8) | (6 << 29)
             actual = []
             for level in levels:
                 detector.SetInput(3, level)
@@ -580,11 +581,51 @@ def test_ezh_pending_trap_edge_polarity_latches_until_software_clear(cpu_image):
         assert detector.Sample(trap) & 3 == 0
 
 
+def test_ezh_boolean_final_slice_terminates_an_unmasked_term(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)):
+        from Antmicro.Renode.Peripherals.Miscellaneous import RazerEzhBoolean
+
+        detector = RazerEzhBoolean()
+        # Hardware with CFS=CFM=0 asserts BS and computes the vector-7 address.
+        detector.Sample(0)
+        assert detector.Results == 0x80
+        detector.Mode = 1
+        detector.Sample(0)
+        assert detector.Results == 0x81
+        detector.Mode = 6 << 29  # final slice constant low suppresses the term
+        detector.Sample(0)
+        assert detector.Results == 0
+
+
+@pytest.mark.parametrize("word,destination", [(0x0000001C, 0), (0x2000161C, 5)])
+def test_ezh_hold_can_compute_vector_address_without_branch(cpu_image, word, destination):
+    # These two encodings were compared on LPC5528 hardware with CFM=1.
+    # Both continue sequentially and write table+4 into their encoded destination.
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus, ezh = keyboard._bus, keyboard._ezh
+        code, table = 0x20028000, 0x20028100
+        bus.WriteDoubleWord(code, 1 | (13 << 14) | (1 << 18) | (6 << 24))
+        bus.WriteDoubleWord(code + 4, (1 << 18) | (11 << 10) | (1 << 20))
+        bus.WriteDoubleWord(code + 8, word)
+        bus.WriteDoubleWord(code + 12, (1 << 18) | (1 << 10) | (7 << 20))
+        bus.WriteDoubleWord(code + 32, table)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh.AdvanceCycles(4)
+        assert ezh.GetRegister(destination) == table + 4
+        assert ezh.GetRegister(1) == 7
+        assert ezh.GetRegister(15) == code + 12
+        assert ezh.GetRegister(13) == code + 16
+        assert not ezh.Holding
+        assert keyboard.state().stopped_reason is None
+
+
 def test_ezh_hold_waits_for_trigger_and_resumes(cpu_image):
     with Keyboard(Firmware.load(cpu_image)) as keyboard:
         bus = keyboard._bus
         code = 0x20028000
-        bus.WriteDoubleWord(code, (1 << 18) | (11 << 10) | (0x101 << 20))  # CFM
+        bus.WriteDoubleWord(code, 1 | (11 << 10) | (13 << 14) | (1 << 18) | (6 << 24))
+        bus.WriteDoubleWord(code + 32, 0xC0000101)  # rising slice 0, trailing term off
         bus.WriteDoubleWord(code + 4, 0x1C | (13 << 10) | (1 << 15))  # HOLD
         bus.WriteDoubleWord(code + 8, (1 << 18) | (7 << 20))
         bus.WriteDoubleWord(0x4001D020, code)
@@ -677,18 +718,20 @@ def test_ezh_reignition_discards_old_hold_pipeline(cpu_image):
     with Keyboard(Firmware.load(cpu_image)) as keyboard:
         bus = keyboard._bus
         code = 0x20028000
+        # Configure a constant-false term before testing a waiting HOLD.
+        bus.WriteDoubleWord(code - 4, (1 << 18) | (11 << 10) | (8 << 14) | (6 << 20))
         bus.WriteDoubleWord(code, 0x1C | (13 << 10) | (1 << 15))
         bus.WriteDoubleWord(code + 4, (1 << 18) | (9 << 20))
-        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D020, code - 4)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
         ezh = keyboard._ezh
         ezh.AdvanceCycles(2)
-        assert ezh.Holding and ezh.Instructions == 0
+        assert ezh.Holding and ezh.Instructions == 1
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0010)
         bus.WriteDoubleWord(0x4001D020, code + 4)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
         ezh.AdvanceCycles(1)
-        assert not ezh.Holding and ezh.Instructions == 1
+        assert not ezh.Holding and ezh.Instructions == 2
         assert ezh.GetRegister(0) == 9 and ezh.GetRegister(13) == code + 8
 
 

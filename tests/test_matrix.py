@@ -10,6 +10,38 @@ ROW_MASK = sum(1 << pin for pin in ROW_PINS)
 COLUMN_MASK = sum(1 << pin for pin in COLUMN_PINS)
 
 
+@pytest.mark.parametrize("cold_boot", [False, True])
+def test_private_firmware_reports_matrix_press_and_release(cpu_image, cold_boot):
+    import os
+
+    from razer_emu import Bootloader, FlashRegion
+
+    path = os.environ.get("RAZER_TEST_FIRMWARE")
+    dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
+    boot_path = os.environ.get("RAZER_TEST_BOOTLOADER_DUMP")
+    if not path or not dumps or (cold_boot and not boot_path):
+        pytest.skip("Set private firmware/flash captures and an optional complete bootloader")
+    firmware = Firmware.load(path)
+    regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
+    bootloader = Bootloader.load_dump(boot_path) if cold_boot else None
+    with Keyboard(firmware, flash_regions=regions, bootloader=bootloader) as keyboard:
+        matrix = keyboard.attach_matrix()
+        keyboard.usb.enumerate_device()
+        assert keyboard.run_for(10_000).stopped_reason is None
+        # Ordinary startup and contact changes only. The captured default binding
+        # of this contact is A; no code, entry point or readiness flag is changed.
+        for pressed in (True, False):
+            matrix.set_key(3, 1, pressed)
+            expected = bytes((0, 0, 4 if pressed else 0, 0, 0, 0, 0, 0))
+            for _ in range(3):
+                packet = keyboard.usb.read_interrupt(0x81, 8, timeout_us=150_000)
+                if packet == expected:
+                    break
+            assert packet == expected
+            assert keyboard.state().stopped_reason is None
+        assert keyboard.read_memory(0x20000000, len(firmware.image)) == firmware.image
+
+
 def _drive(keyboard, output, direction):
     bus, ezh, code = keyboard._bus, keyboard._ezh, 0x20028000
     for pin in ROW_PINS + COLUMN_PINS:
@@ -28,6 +60,19 @@ def _drive(keyboard, output, direction):
     bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
     ezh.AdvanceCycles(len(words))
     return int(ezh.GetRegister(0)) & COLUMN_MASK
+
+
+def test_unattached_ezh_pins_share_gpio_pulls_and_external_levels(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        gpio = keyboard._machine.sysbus.gpio.internal
+        assert _drive(keyboard, ROW_MASK, ROW_MASK) == COLUMN_MASK
+        pin = COLUMN_PINS[0]
+        gpio.OnGPIO(pin, False)
+        assert keyboard._ezh.GetRegister(14) & COLUMN_MASK == COLUMN_MASK & ~(1 << pin)
+        gpio.ReleaseInput(pin)
+        assert keyboard._ezh.GetRegister(14) & COLUMN_MASK == COLUMN_MASK
+        assert _drive(keyboard, 0, ROW_MASK) == COLUMN_MASK
+        assert keyboard._bus.ReadDoubleWord(0x4008E100) & ROW_MASK == 0
 
 
 def test_contact_is_visible_only_on_its_driven_low_row(cpu_image):

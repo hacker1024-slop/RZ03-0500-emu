@@ -50,6 +50,14 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
         public uint EzhFunctionMask { get; private set; }
         public uint Port0Output => base.ReadDoubleWord(0x2100);
         public uint Port0Direction => base.ReadDoubleWord(0x2000);
+        public uint ReadSharedPort0(uint ezhOutput, uint ezhDirection)
+        {
+            var gpioDrive = Port0Direction & GpioFunctionMask;
+            var ezhDrive = ezhDirection & EzhFunctionMask;
+            var inputs = (uint)((pullUps & ~externalMask) | (externalValues & externalMask));
+            return (inputs & ~(gpioDrive | ezhDrive)) |
+                (Port0Output & gpioDrive) | (ezhOutput & ezhDrive);
+        }
         public void SetPinFunction(int pin, uint function)
         {
             if(pin < 0 || pin >= 32) return; // EZH/matrix uses port zero only.

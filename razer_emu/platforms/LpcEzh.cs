@@ -5,6 +5,7 @@ using Antmicro.Renode.Core;
 using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Timers;
 using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.GPIOPort;
 using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.Miscellaneous
@@ -14,9 +15,13 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     // initialization; no instruction or firmware bytes are patched.
     public class RazerLpcEzh : RazerLpcAnalog, INumberedGPIOOutput, IGPIOReceiver
     {
-        public RazerLpcEzh(IMachine machine)
+        public RazerLpcEzh(IMachine machine, RazerLpcGpio gpio)
         {
             this.machine = machine;
+            // Unattached contacts still expose the actual shared pin levels.
+            // A matrix attachment replaces these delegates with its contact network.
+            InputPins = (output, direction) => gpio.ReadSharedPort0(output, direction);
+            gpio.InputPins = (output, direction) => gpio.ReadSharedPort0(registers[8], registers[9]);
             var channels = new Dictionary<int, IGPIO>();
             for(var i = 0; i < 24; i++) channels[i] = new GPIO();
             Connections = channels;
@@ -328,7 +333,11 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             var target = holdTable + 4U + (uint)vector * ((holdWord & (1 << 19)) != 0 ? 16U : 4U);
             var accelerated = (holdWord & 512) != 0 && (holdWord & (1U << (24 + vector))) != 0;
             if((holdWord & (1 << 18)) == 0) registers[15] = holdAddress + (accelerated ? 12U : 4U);
-            WriteRegister(13, target, accelerated);
+            // LPC5528 captures distinguish the destination (bits 13:10)
+            // from the table source (23:20). A non-PC destination receives
+            // the vector address without branching or changing ALU flags.
+            var destination = (int)((holdWord >> 10) & 15);
+            WriteRegister(destination, target, accelerated && destination == 13);
             return true;
         }
         private bool Implemented(uint opcode) => opcode == 0 || opcode == 1 || opcode == 2 ||

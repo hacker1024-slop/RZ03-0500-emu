@@ -68,7 +68,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 if((pendingTrap & (bit << 16)) != 0)
                     detected = (pendingTrap & bit) != 0;
                 chain &= detected;
-                if((mode & bit) != 0)
+                // The final slice always terminates the remaining AND term.
+                // LPC5528 captures with CFM=0 select vector 7; a zero OR mask
+                // does not disable all detection when the slice muxes are 1.
+                if((mode & bit) != 0 || slice == 7)
                 {
                     if(chain) outputs |= bit;
                     chain = true;
