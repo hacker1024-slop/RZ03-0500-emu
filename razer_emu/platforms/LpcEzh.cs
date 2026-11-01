@@ -12,7 +12,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     // Functional EZH architecture-B interpreter. Register/MMIO encodings follow
     // NXP AN14650. Unimplemented instructions stop explicitly, including during
     // initialization; no instruction or firmware bytes are patched.
-    public class RazerLpcEzh : RazerLpcAnalog, INumberedGPIOOutput
+    public class RazerLpcEzh : RazerLpcAnalog, INumberedGPIOOutput, IGPIOReceiver
     {
         public RazerLpcEzh(IMachine machine)
         {
@@ -32,9 +32,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             Instructions = 0; Running = false; clock?.Reset();
             pc = 0; flagsMask = 0; carry = false; Cycles = 0;
             heartbeatPeriod = heartbeatLeft = 0; waitForBeat = syncToBeat = false;
-            branchDelay = 0; branchTarget = 0;
+            branches?.Clear();
             BusFault = false; FaultAddress = 0; UnsupportedInstruction = false;
             loopStart = loopEnd = loopRemaining = 0;
+            detector?.Reset(); holding = false;
             IRQ?.Unset();
             if(Connections != null) foreach(var channel in Connections.Values) channel.Unset();
         }
@@ -52,7 +53,13 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 var wasRunning = Running;
                 values[0x24] = value & 0x1F;
                 Running = (value & 1) != 0;
-                if(Running && !wasRunning) pc = values[0x20] & ~3U;
+                if(Running && !wasRunning)
+                {
+                    pc = values[0x20] & ~3U;
+                    holding = waitForBeat = syncToBeat = false;
+                    heartbeatPeriod = heartbeatLeft = loopRemaining = 0;
+                    branches.Clear();
+                }
                 clock.Enabled = Running;
                 return;
             }
@@ -62,10 +69,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public uint GetRegister(int index)
         {
             if(index < 0 || index > 15) throw new ArgumentOutOfRangeException(nameof(index));
-            return index == 13 ? pc : registers[index];
+            return index == 13 ? pc : ReadRegister(index);
         }
+        public void OnGPIO(int number, bool value) => detector.SetInput(number, value);
         public ulong Instructions { get; private set; }
         public bool Running { get; private set; }
+        public bool Holding => holding;
         public ulong Cycles { get; private set; }
         public bool BusFault { get; private set; }
         public bool UnsupportedInstruction { get; private set; }
@@ -80,6 +89,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             for(var i = 0; i < count && Running; i++)
             {
                 Cycles++;
+                values[0x48] = detector.Sample(values[0x48]);
                 var beat = heartbeatPeriod == 0 || --heartbeatLeft == 0;
                 if(beat) heartbeatLeft = heartbeatPeriod;
                 if((waitForBeat || syncToBeat) && !beat) continue;
@@ -87,6 +97,11 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 var instructionAddress = pc;
                 try
                 {
+                    if(holding)
+                    {
+                        if(ResumeHold()) CompleteInstruction();
+                        continue;
+                    }
                     var word = ReadWord(pc);
                     pc += 4;
                     // GOSUB uses the entire word as its address. Decode its two-bit
@@ -123,6 +138,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     uint value;
                     switch(opcode)
                     {
+                    case 0x1C:
+                        holdWord = word; holdAddress = instructionAddress;
+                        holdTable = ReadRegister(second);
+                        holding = true; pc = instructionAddress;
+                        if(ResumeHold()) CompleteInstruction();
+                        continue;
                     case 0x1A:
                         // The next opcode is a one-time prologue. The loop body
                         // starts two words after TIGHT_LOOP; Rend is exclusive.
@@ -200,7 +221,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                         }
                         else if(isWord) WriteWord(access, ReadRegister(second));
                         else WriteByte(access, (byte)ReadRegister(second));
-                        if(writeback && source != 13 && !(opcode == 1 && source == destination)) registers[source] = address;
+                        if(writeback && source != 13 && !(opcode == 1 && source == destination)) WriteRegister(source, address, false);
                         break;
                     case 0x10: // immediate shift; fused ALU forms need further implementation
                         if((word >> 29) != 0) { Fail(instructionAddress, word); continue; }
@@ -267,27 +288,53 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private void CompleteInstruction()
         {
             Instructions++;
-            if(branchDelay > 0 && --branchDelay == 0) pc = branchTarget;
+            foreach(var branch in branches) branch.Remaining--;
+            if(branches.Count != 0 && branches[0].Remaining == 0)
+            {
+                pc = branches[0].Target;
+                branches.RemoveAt(0);
+            }
             if(loopRemaining != 0 && pc == loopEnd)
             {
                 loopRemaining--;
                 pc = loopStart;
             }
         }
+        private bool ResumeHold()
+        {
+            if(detector.Results == 0) return false;
+            holding = false;
+            pc = holdAddress + 4;
+            if((holdWord & (1 << 15)) != 0) return true;
+            var vector = 0;
+            while((detector.Results & (1U << vector)) == 0) vector++;
+            var target = holdTable + 4U + (uint)vector * ((holdWord & (1 << 19)) != 0 ? 16U : 4U);
+            var accelerated = (holdWord & 512) != 0 && (holdWord & (1U << (24 + vector))) != 0;
+            if((holdWord & (1 << 18)) == 0) registers[15] = holdAddress + (accelerated ? 12U : 4U);
+            WriteRegister(13, target, accelerated);
+            return true;
+        }
         private bool Implemented(uint opcode) => opcode == 0 || opcode == 1 || opcode == 2 ||
             opcode == 4 || opcode == 5 || opcode == 6 || opcode == 8 || opcode == 12 || opcode == 13 ||
-            opcode == 14 || opcode == 0x10 || opcode == 0x12 || opcode == 0x15 || opcode == 0x18 || opcode == 0x1A;
-        private uint ReadRegister(int register) => register == 13 ? pc + 4 : registers[register];
+            opcode == 14 || opcode == 0x10 || opcode == 0x12 || opcode == 0x15 || opcode == 0x18 || opcode == 0x1A || opcode == 0x1C;
+        private uint ReadRegister(int register)
+        {
+            if(register == 10) return detector.Selection;
+            if(register == 11) return detector.Mode;
+            return register == 13 ? pc + 4 : registers[register];
+        }
         private void WriteRegister(int register, uint value, bool flags)
         {
             if(register == 13)
             {
-                if(flags) { branchTarget = value & ~3U; branchDelay = 3; }
-                else { pc = value & ~3U; branchDelay = 0; }
+                if(flags) branches.Add(new ScheduledBranch { Target = value & ~3U });
+                else { pc = value & ~3U; branches.Clear(); }
             }
             else
             {
                 if(register != 14) registers[register] = value;
+                if(register == 10) detector.Selection = value;
+                if(register == 11) detector.Mode = value;
                 if(flags)
                 {
                     flagsMask = (ushort)((value == 0 ? 1 << 1 : 1 << 2) |
@@ -304,7 +351,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
             case 0: case 10: return true;
             case 11: return (flagsMask & (1 << 2)) != 0;
+            case 12: return detector.Results == 0;
             case 13: return (values[0x24] & 2) == 0;
+            case 14: return detector.Results != 0;
             case 15: return (values[0x24] & 2) != 0;
             default: Fail(pc - 4, ReadWord(pc - 4)); return false;
             }
@@ -331,11 +380,18 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly IMachine machine;
         private readonly LimitTimer clock;
         private readonly uint[] registers = new uint[16];
-        private uint pc, branchTarget, heartbeatPeriod, heartbeatLeft, accessAddress;
+        private readonly RazerEzhBoolean detector = new RazerEzhBoolean();
+        private uint pc, heartbeatPeriod, heartbeatLeft, accessAddress;
         private uint loopStart, loopEnd, loopRemaining;
-        private int branchDelay;
+        private uint holdWord, holdAddress, holdTable;
+        private readonly List<ScheduledBranch> branches = new List<ScheduledBranch>();
+        private sealed class ScheduledBranch
+        {
+            public uint Target;
+            public int Remaining = 3;
+        }
         private ushort flagsMask;
-        private bool waitForBeat, syncToBeat;
+        private bool waitForBeat, syncToBeat, holding;
         private bool carry;
     }
 }

@@ -14,6 +14,7 @@ class State:
     instructions: int
     ezh_pc: int
     ezh_instructions: int
+    ezh_holding: bool
     ezh_fault_address: int | None
     elapsed_us: int
     exception: int
@@ -85,6 +86,7 @@ class Keyboard:
                     "LpcI2c.cs",
                     "LpcFlash.cs",
                     "LpcWatchdog.cs",
+                    "LpcEzhBoolean.cs",
                     "LpcEzh.cs",
                 ):
                     model = files("razer_emu").joinpath("platforms/" + name)
@@ -194,6 +196,7 @@ class Keyboard:
             self._cpu.ExecutedInstructions,
             self._ezh.ReadDoubleWord(0x28),
             self._ezh.Instructions,
+            self._ezh.Holding,
             self._ezh.FaultAddress if self._ezh.BusFault else None,
             self._elapsed_us,
             exception,

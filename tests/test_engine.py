@@ -138,11 +138,12 @@ def test_original_application_with_verified_nvram(cpu_image):
         )
     regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
     with Keyboard(Firmware.load(path), flash_regions=regions) as keyboard:
-        state = keyboard.run_for(20000)
+        state = keyboard.run_for(30000)
         assert state.instructions > 100_000
+        assert state.elapsed_us >= 20000
         assert state.exception == 0
         assert state.fault_status == 0
-        assert state.stopped_reason == "unsupported_ezh_instruction"
+        assert state.stopped_reason in (None, "unsupported_mmio")
 
 
 def test_watchdog_feed_and_expiration_are_virtual_time_events(cpu_image):
@@ -201,7 +202,7 @@ def test_ezh_mailbox_word_addressing_and_register_operations(cpu_image):
 def test_ezh_unknown_opcode_stops_at_its_address(cpu_image):
     with Keyboard(Firmware.load(cpu_image)) as keyboard:
         bus = keyboard._bus
-        bus.WriteDoubleWord(0x20028000, 0x1C)
+        bus.WriteDoubleWord(0x20028000, 0x1E)
         bus.WriteDoubleWord(0x4001D020, 0x20028000)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
         state = keyboard.run_for(10)
@@ -293,7 +294,7 @@ def test_ezh_absolute_call_return_and_conditional_decode(cpu_image):
         words = [
             (code + 24) | 3,  # GOSUB: address overlaps opcode and condition fields
             (1 << 18) | (2 << 20),  # returned: R0 = 2
-            0x1C | (15 << 5),  # unsupported HOLD, EX false: no side effects
+            0x1E | (15 << 5),  # unsupported opcode, EX false: no side effects
             (1 << 18) | (1 << 10) | (3 << 20),  # R1 = 3
             0x15 | (13 << 14),  # branch past the subroutine
             0x12,
@@ -389,3 +390,199 @@ def test_ezh_tight_loop_prologue_runs_once_and_end_is_exclusive(cpu_image, repea
         assert ezh.GetRegister(3) == repeats  # supervisor keeps a private counter
         assert ezh.GetRegister(13) == code + len(words) * 4
         assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_boolean_modes_sticky_clear_and_mux_status(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)):
+        from Antmicro.Renode.Peripherals.Miscellaneous import RazerEzhBoolean
+
+        detector = RazerEzhBoolean()
+        levels = [False, True, True, False, False, True, False]
+        expected = [
+            [1, 1, 1, 1, 1, 1, 1],  # always high
+            [0, 1, 1, 1, 1, 1, 1],  # sticky rising
+            [0, 0, 0, 1, 1, 1, 1],  # sticky falling
+            [0, 1, 1, 1, 1, 1, 1],  # sticky either edge
+            [0, 1, 1, 0, 0, 1, 0],  # high level
+            [1, 0, 0, 1, 1, 0, 1],  # low level
+            [0, 0, 0, 0, 0, 0, 0],  # always low
+            [0, 1, 0, 1, 0, 1, 1],  # nonsticky either edge
+        ]
+        for mode, results in enumerate(expected):
+            detector.Reset()
+            detector.Selection = (3 << 8) | 0xFF  # slice 0 observes input 3
+            assert detector.Selection == 3 << 8  # low status bits are read-only
+            detector.Mode = 1 | (mode << 8)
+            actual = []
+            for level in levels:
+                detector.SetInput(3, level)
+                detector.Sample(0)
+                actual.append(detector.Results)
+                assert detector.Selection & 1 == int(level)
+            assert actual == results
+            if mode in (1, 2, 3):
+                detector.Mode = detector.Mode  # any CFM write clears sticky state
+                detector.Sample(0)
+                assert detector.Results == 0
+
+
+def test_ezh_boolean_cascade_and_pending_trap_override(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)):
+        from Antmicro.Renode.Peripherals.Miscellaneous import RazerEzhBoolean
+
+        detector = RazerEzhBoolean()
+        detector.Selection = sum(i << (8 + 3 * i) for i in range(8))
+        detector.Mode = sum(4 << (8 + 3 * i) for i in range(8)) | 0x8C
+        # NXP's ABC + D + EFGH example: only each group's final slice routes out.
+        for pin in (0, 1):
+            detector.SetInput(pin, True)
+        detector.Sample(0)
+        assert detector.Results == 0
+        detector.SetInput(2, True)
+        detector.Sample(0)
+        assert detector.Results == 4
+        for pin in range(3, 8):
+            detector.SetInput(pin, True)
+        detector.Sample(0)
+        assert detector.Results == 0x8C
+        detector.SetInput(0, False)
+        detector.Sample(0)
+        assert detector.Results == 0x88
+        detector.Mode = sum(6 << (8 + 3 * i) for i in range(8)) | 0xFF
+        detector.Sample((1 << 19) | (1 << 3))
+        assert detector.Results == 8
+        detector.Sample((1 << 19) | (1 << 11) | (1 << 3))
+        assert detector.Results == 8  # polarity does not invert software status
+        detector.Sample(1 << 19)
+        assert detector.Results == 0
+
+
+def test_ezh_pending_trap_edge_polarity_latches_until_software_clear(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)):
+        from Antmicro.Renode.Peripherals.Miscellaneous import RazerEzhBoolean
+
+        detector = RazerEzhBoolean()
+        trap = 1 << 9  # input 1 falling edge; other inputs rising edge
+        detector.SetInput(0, True)
+        detector.SetInput(1, True)
+        trap = detector.Sample(trap)
+        assert trap & 3 == 1
+        detector.SetInput(0, False)
+        detector.SetInput(1, False)
+        trap = detector.Sample(trap)
+        assert trap & 3 == 3
+        assert detector.Sample(trap) & 3 == 3  # remains latched without edges
+        trap &= ~3
+        assert detector.Sample(trap) & 3 == 0
+
+
+def test_ezh_hold_waits_for_trigger_and_resumes(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        code = 0x20028000
+        bus.WriteDoubleWord(code, (1 << 18) | (11 << 10) | (0x101 << 20))  # CFM
+        bus.WriteDoubleWord(code + 4, 0x1C | (13 << 10) | (1 << 15))  # HOLD
+        bus.WriteDoubleWord(code + 8, (1 << 18) | (7 << 20))
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(5)
+        assert ezh.Instructions == 1 and ezh.GetRegister(13) == code + 4
+        assert keyboard.state().ezh_holding
+        assert keyboard.state().stopped_reason is None
+        ezh.OnGPIO(0, True)
+        ezh.AdvanceCycles(1)
+        assert ezh.Instructions == 2 and ezh.GetRegister(13) == code + 8
+        assert not keyboard.state().ezh_holding
+        assert ezh.GetRegister(10) & 0xFF == 0xFF  # all slices select input 0
+        ezh.AdvanceCycles(1)
+        assert ezh.GetRegister(0) == 7
+
+
+@pytest.mark.parametrize(
+    "vector,large,accelerated,no_return",
+    [
+        (1, False, False, False),
+        (2, True, False, True),
+        (1, False, True, True),
+        (2, True, True, False),
+    ],
+)
+def test_ezh_vectored_hold_dispatch_and_unflushed_slots(
+    cpu_image, vector, large, accelerated, no_return
+):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        code = 0x20028000
+        hold = 0x1C | (13 << 10) | (13 << 20)
+        hold |= (int(large) << 19) | (int(no_return) << 18)
+        if accelerated:
+            hold |= 512 | (1 << (24 + vector))
+        target_index = 4 + vector * (4 if large else 1)
+        words = [0x12] * (target_index + 1)
+        # Both this vector and vector 7 fire; the lower-numbered vector wins.
+        words[0] = (1 << 18) | (11 << 10) | (((1 << vector) | 128) << 20)  # CFM
+        words[1] = hold
+        words[2] = (1 << 18) | (1 << 20)
+        words[3] = (1 << 18) | (1 << 10) | (2 << 20)
+        words[target_index] = (1 << 18) | (2 << 10) | (9 << 20)
+        bus = keyboard._bus
+        bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(4 if accelerated else 2)
+        assert ezh.GetRegister(13) == code + target_index * 4
+        assert [ezh.GetRegister(i) for i in range(2)] == ([1, 2] if accelerated else [0, 0])
+        expected_return = 0 if no_return else code + (16 if accelerated else 8)
+        assert ezh.GetRegister(15) == expected_return
+        ezh.AdvanceCycles(1)
+        assert ezh.GetRegister(2) == 9
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_accelerated_hold_preserves_branch_issued_in_delay_slot(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        code = 0x20028000
+        toggle = 0x18 | (8 << 10) | (8 << 14) | (7 << 29)
+        words = [
+            (1 << 18) | (11 << 10) | (4 << 20),  # CFM: vector 2 is active
+            0x1C | (13 << 10) | (13 << 20) | (1 << 18) | 512 | (4 << 24),
+            8 | (13 << 10) | (13 << 14) | (1 << 18) | (12 << 20) | 512,
+            toggle,  # second delay slot
+            (1 << 18) | (99 << 20),  # vector 0: must not execute
+            0x12,  # vector 1
+            toggle,  # vector 2: executes before the second scheduled branch
+        ]
+        bus = keyboard._bus
+        bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(5)
+        assert ezh.GetRegister(13) == code + 4
+        assert ezh.GetRegister(8) == 0  # both toggle instructions executed
+        assert ezh.GetRegister(0) == 0
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_reignition_discards_old_hold_pipeline(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        code = 0x20028000
+        bus.WriteDoubleWord(code, 0x1C | (13 << 10) | (1 << 15))
+        bus.WriteDoubleWord(code + 4, (1 << 18) | (9 << 20))
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(2)
+        assert ezh.Holding and ezh.Instructions == 0
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0010)
+        bus.WriteDoubleWord(0x4001D020, code + 4)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh.AdvanceCycles(1)
+        assert not ezh.Holding and ezh.Instructions == 1
+        assert ezh.GetRegister(0) == 9 and ezh.GetRegister(13) == code + 8
