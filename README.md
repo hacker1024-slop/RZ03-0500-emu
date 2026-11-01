@@ -48,6 +48,46 @@ The JSON includes `usb` metadata and raw descriptors produced by firmware. The r
 
 Updater payloads and complete flash dumps must be converted to raw application images before loading. Other models are not supported yet.
 
+## Scripted inputs
+
+Save an ordered JSON array as `inputs.json`:
+
+```json
+[
+  {"at_us": 10000, "type": "matrix", "row": 3, "column": 1, "pressed": true},
+  {"at_us": 90000, "type": "matrix", "row": 3, "column": 1, "pressed": false}
+]
+```
+
+```sh
+razer-emu application.bin --flash-dump ./settings-capture \
+  --usb-enumerate --input-script inputs.json --microseconds 160000
+```
+
+Times are integer virtual microseconds relative to playback start, after USB enumeration when requested. Equal-time events retain file order. Coordinates are electrical scan positions; (3, 1) is A in the tested capture. Leave time after the last edge for firmware sampling and debounce. In bounded runs, every event must fit within `--microseconds`. Playback does not release held inputs implicitly.
+
+| Event type | Additional fields |
+|---|---|
+| `matrix` | `row` (0–7), `column` (0–15), `pressed` (boolean) |
+| `encoder` | `phase_a`, `phase_b` (booleans) |
+| `button` | `index` (0 or 1), `pressed` (boolean) |
+
+The JSON result includes `input_events_applied`. With `--usb-enumerate`, it also contains `usb_reports`: endpoint addresses, raw firmware-produced packet hex, and polling times relative to playback start. This is a virtual host reading interrupt endpoints; the script only changes electrical inputs.
+
+Scripts also work with `--usbip`. Playback starts before serving; virtual time advances during guest import and USB traffic, so allow enough lead-in before the first input. Reports go to the importing guest. A cold-boot CLI script has delivered A-key, volume and mute press/release events to Linux in QEMU through this path. For precise control over when playback begins, prepare a script through the library before execution and start it when your frontend is ready:
+
+```python
+from razer_emu import InputScript
+
+# Inside the Keyboard context, before executing firmware:
+playback = keyboard.prepare_input_script(InputScript.load("inputs.json"))
+keyboard.usb.enumerate_device()
+playback.start()
+keyboard.run_for(160000)
+```
+
+The core splits its execution quanta at event deadlines, including time advanced by USB transactions. `playback.cancel()` cancels future events while retaining current contact levels. MCU reset cancels playback too; calling `start()` again replays the script from its first event. Instruction stepping does not advance the script's virtual-time counter. Like the other input APIs, playback belongs to the core's owning thread.
+
 ## Core library
 
 The CLI is a thin frontend; execution and inspection live in the reusable core:
@@ -66,7 +106,7 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 `Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
 
-`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping remains incomplete. Normal firmware-generated matrix press/release is verified for electrical contact (3, 1), bound to A in the private capture.
+`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Execution is paused between advancement calls; a GUI can pause its worker by withholding further calls. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping remains incomplete. Normal firmware-generated matrix press/release is verified for electrical contact (3, 1), bound to A in the private capture.
 
 USB control requests are available through `keyboard.usb`:
 
@@ -80,7 +120,7 @@ descriptor = keyboard.usb.control(SetupPacket(0x80, 6, value=0x100, length=18))
 
 `connect()`, `reset_bus()` and `control()` can also be called separately. NAK polling advances virtual time within a bounded budget. `UsbTimeout`, `UsbStall` and `UsbError` distinguish deadline expiry, firmware STALL and emulator/device errors. The current host uses 64-byte endpoint-zero packets for this high-speed keyboard. Control replies come from the firmware's USB stack, including class requests; the host contains no Razer response implementation.
 
-`keyboard.usb.read_interrupt(0x81, 8, interval_us=125, timeout_us=100_000)` receives one firmware-produced IN packet. Supply the endpoint address, maximum packet size and polling interval appropriate to the firmware's descriptor. Short and zero-length packets are returned unchanged. Polling advances virtual time and preserves each endpoint's cadence across calls; disconnect, bus reset and MCU reset clear that schedule. Completion interrupts are serviced when virtual time next advances. This API does not synthesize HID reports or resolve the scanner startup limitation below.
+`keyboard.usb.read_interrupt(0x81, 8, interval_us=125, timeout_us=100_000)` receives one firmware-produced IN packet. Supply the endpoint address, maximum packet size and polling interval appropriate to the firmware's descriptor. Short and zero-length packets are returned unchanged. Polling advances virtual time and preserves each endpoint's cadence across calls; disconnect, bus reset and MCU reset clear that schedule. Completion interrupts are serviced when virtual time next advances. This API reads the firmware’s endpoint data without synthesizing HID reports.
 
 For event loops, `keyboard.usb.poll_interrupt(0x81, 8, interval_us=125)` attempts one transaction without advancing virtual time. It returns `None` when the endpoint NAKs or its next poll is not due, and bytes on ACK (including `b""`). Advance time with `keyboard.run_for(...)` between attempts. Blocking and nonblocking reads share the endpoint polling schedule.
 

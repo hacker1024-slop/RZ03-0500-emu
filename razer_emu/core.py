@@ -88,6 +88,7 @@ class Keyboard:
         self._matrix = None
         self._encoder = None
         self._buttons = None
+        self._input_playback = None
         try:
             if not Keyboard._models_loaded:
                 for name in (
@@ -240,6 +241,7 @@ class Keyboard:
 
         if self._closed:
             raise RuntimeError("Keyboard is closed")
+        self._input_playback = None
         self._engine.PauseAll()
         self._machine.Reset()
         self.usb._reset_timing()
@@ -266,6 +268,17 @@ class Keyboard:
         self._initial_reads = self._bus.UnexpectedReads
         self._initial_writes = self._bus.UnexpectedWrites
 
+    def prepare_input_script(self, script):
+        """Attach required inputs before execution, returning a startable playback."""
+        from .inputs import InputPlayback, InputScript
+
+        self._ensure_running()
+        if self._elapsed_us or self._cpu.ExecutedInstructions:
+            raise RuntimeError("Prepare input scripts before firmware execution")
+        if not isinstance(script, InputScript):
+            raise TypeError("Expected an InputScript")
+        return InputPlayback(self, script)
+
     def step(self, count=1):
         if not 1 <= count <= 1000:
             raise ValueError("Step count must be between 1 and 1000")
@@ -286,10 +299,16 @@ class Keyboard:
         remaining = microseconds
         while remaining and not self._reason:
             quantum = min(10, remaining)
+            if self._input_playback is not None:
+                self._input_playback._apply_due(self._elapsed_us)
+                if self._input_playback is not None:
+                    quantum = min(quantum, self._input_playback.next_due_us - self._elapsed_us)
             self._engine.RunFor(TimeInterval.FromMicroseconds(quantum))
             self._elapsed_us += quantum
             remaining -= quantum
             self.state()
+        if not self._reason and self._input_playback is not None:
+            self._input_playback._apply_due(self._elapsed_us)
         return self.state()
 
     def state(self):

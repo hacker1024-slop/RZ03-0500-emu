@@ -57,6 +57,24 @@ class UsbEnumeration:
         if not self.configuration[5]:
             raise UsbError("Configuration value cannot be zero")
 
+    @property
+    def interrupt_inputs(self):
+        """(address, packet size, interval_us) for high-speed interrupt IN endpoints."""
+        result = []
+        offset = 0
+        while offset < len(self.configuration):
+            item = self.configuration[offset:]
+            if len(item) < 2 or item[0] < 2 or item[0] > len(item):
+                raise UsbError("Malformed configuration descriptor")
+            if item[1] == 5 and item[0] >= 7:
+                address, attributes, size, interval = struct.unpack_from("<BBHB", item, 2)
+                if attributes & 3 == 3 and address & 0x80:
+                    if not 1 <= size <= 1024 or not 1 <= interval <= 16:
+                        raise UsbError("Unsupported high-speed interrupt endpoint")
+                    result.append((address, size, 125 << (interval - 1)))
+            offset += item[0]
+        return tuple(result)
+
     def to_dict(self):
         vid, pid = struct.unpack_from("<HH", self.device, 8)
         return {

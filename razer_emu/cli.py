@@ -6,6 +6,7 @@ import json
 import sys
 
 from .firmware import Bootloader, Firmware, FlashRegion
+from .inputs import InputScript
 from .usb import UsbError
 
 
@@ -24,6 +25,11 @@ def main(argv=None):
     parser.add_argument("firmware", help="Raw application image with vector table")
     parser.add_argument(
         "--microseconds", type=int, default=1000, help="Virtual runtime (default 1000)"
+    )
+    parser.add_argument(
+        "--input-script",
+        metavar="JSON",
+        help="Play timestamped matrix/encoder/button inputs after USB setup (if requested)",
     )
     parser.add_argument(
         "--usb-enumerate",
@@ -60,6 +66,11 @@ def main(argv=None):
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be 1 to 65535")
     try:
+        script = InputScript.load(args.input_script) if args.input_script else None
+        if args.usbip is None and not 1 <= args.microseconds <= 10_000_000:
+            raise ValueError("--microseconds must be from 1 to 10,000,000")
+        if args.usbip is None and script and script.duration_us > args.microseconds:
+            raise ValueError("The input script extends beyond --microseconds")
         from .core import Keyboard
 
         image = Firmware.load(args.firmware)
@@ -68,25 +79,64 @@ def main(argv=None):
             flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump],
             bootloader=Bootloader.load_dump(args.bootloader_dump) if args.bootloader_dump else None,
         ) as keyboard:
+            playback = keyboard.prepare_input_script(script) if script else None
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
             if args.usbip is not None:
                 from .usbip import UsbIpServer
 
                 enumeration = keyboard.usb.enumerate_device()
+                if playback:
+                    playback.start()
                 print(f"USB/IP listening on 127.0.0.1:{args.usbip}, bus ID 1-1", file=sys.stderr)
                 try:
                     asyncio.run(UsbIpServer(keyboard, enumeration).serve(port=args.usbip))
                 except KeyboardInterrupt:
                     pass
                 return 0
-            usb = usb_error = None
+            usb = usb_error = enumeration = None
             try:
                 if args.usb_enumerate:
-                    usb = keyboard.usb.enumerate_device().to_dict()
+                    enumeration = keyboard.usb.enumerate_device()
+                    usb = enumeration.to_dict()
             except UsbError as exc:
                 usb_error = str(exc)
-            state = keyboard.state() if usb_error else keyboard.run_for(args.microseconds)
+            reports = []
+            if usb_error:
+                state = keyboard.state()
+            elif playback:
+                playback.start()
+                origin = keyboard.state().elapsed_us
+                endpoints = enumeration.interrupt_inputs if enumeration else ()
+                state = keyboard.state()
+                try:
+                    while (
+                        state.elapsed_us - origin < args.microseconds and not state.stopped_reason
+                    ):
+                        for endpoint, size, interval in endpoints:
+                            packet = keyboard.usb.poll_interrupt(
+                                endpoint, size, interval_us=interval
+                            )
+                            if packet is not None:
+                                reports.append(
+                                    {
+                                        "at_us": state.elapsed_us - origin,
+                                        "endpoint": f"0x{endpoint:02x}",
+                                        "data": packet.hex(),
+                                    }
+                                )
+                        state = keyboard.run_for(
+                            min(125, args.microseconds - state.elapsed_us + origin)
+                        )
+                except UsbError as exc:
+                    usb_error = str(exc)
+                    state = keyboard.state()
+            else:
+                state = keyboard.run_for(args.microseconds)
             result = {"firmware_sha256": image.sha256, **state.to_dict()}
+            if playback:
+                result["input_events_applied"] = playback.applied
+                if enumeration:
+                    result["usb_reports"] = reports
             if keyboard.bootloader is not None:
                 result["bootloader_sha256"] = keyboard.bootloader.sha256
             if usb is not None:
