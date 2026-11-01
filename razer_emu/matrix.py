@@ -9,7 +9,7 @@ class Matrix:
     """Active-low, diode-isolated contacts; use on the Keyboard's owning thread.
 
     Rows and columns are electrical coordinates. They are not HID usages or
-    physical key positions. CPU GPIO pin mux and the encoder are not connected.
+    physical key positions. IOCON selects CPU GPIO or EZH as the row driver.
     """
 
     def __init__(self, keyboard, backend):

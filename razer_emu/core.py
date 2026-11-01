@@ -83,6 +83,7 @@ class Keyboard:
         self._closed = False
         self._lighting = {}
         self._matrix = None
+        self._encoder = None
         try:
             if not Keyboard._models_loaded:
                 for name in (
@@ -131,6 +132,23 @@ class Keyboard:
     def matrix(self):
         self.state()
         return self._matrix
+
+    @property
+    def encoder(self):
+        self.state()
+        return self._encoder
+
+    def attach_encoder(self, *, phase_a=True, phase_b=True):
+        """Attach GPIO1 pins 2/3 before execution, initially both high by default."""
+        from .encoder import Encoder
+
+        self._ensure_running()
+        if self._elapsed_us or self._cpu.ExecutedInstructions:
+            raise RuntimeError("Attach the encoder before firmware execution")
+        if self._encoder is not None:
+            raise ValueError("Encoder already configured")
+        self._encoder = Encoder(self, self._machine.sysbus.gpio.internal, phase_a, phase_b)
+        return self._encoder
 
     def attach_matrix(self):
         """Attach the inferred 8×16 GPIO/EZH contacts before firmware execution."""

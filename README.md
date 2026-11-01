@@ -66,7 +66,7 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 `Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
 
-`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping and encoder events remain incomplete.
+`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Matrix contacts and lighting snapshots are available through the models below; physical key mapping and normal firmware input reporting remain incomplete.
 
 USB control requests are available through `keyboard.usb`:
 
@@ -121,6 +121,12 @@ Protocol and network references: [Linux USB/IP specification](https://docs.kerne
 A contact model can be attached before execution with `matrix = keyboard.attach_matrix()`. It uses the eight row bits and sixteen column bits recovered from the EZH program. `matrix.press(row, column)`, `matrix.release(row, column)` and `matrix.set_key(row, column, pressed)` update ideal active-low, diode-isolated contacts. Coordinates range from row 0–7 and column 0–15. `matrix.pressed` returns an immutable set of held coordinates; contacts stay held across MCU reset. After attachment, the view is also available as `keyboard.matrix`.
 
 These coordinates are electrical scan positions. IOCON selects CPU GPIO (function 0) or EZH (function 15) as the driver of each matrix row; both input paths observe the shared contacts. Other alternate functions do not drive the modeled matrix. Physical key/HID mapping and media controls remain incomplete. Normal firmware startup still reaches the unresolved EZH HOLD checkpoint, so attaching contacts does not yet produce USB key events. Matrix tests verify input paths, pin selection and row scanning. Separate private component probes can execute the original CPU and EZH row routines, but selecting those routines directly is not a completed firmware boot.
+
+### Media-wheel phases
+
+Attach the encoder before execution with `encoder = keyboard.attach_encoder()`. Its two inputs are GPIO1 pins 2 and 3, as read by the original firmware. `encoder.set_phases(phase_a, phase_b)` accepts booleans, and `encoder.phases` returns their immutable pair. Both inputs start high unless you pass `phase_a=` and `phase_b=` to `attach_encoder()`. They survive MCU reset. The same view is available as `keyboard.encoder`.
+
+A phase sequence `(True, True) → (True, False) → (False, False) → (False, True) → (True, True)` represents one electrical cycle; reverse it for the other direction. Advance virtual time between edges so firmware can sample them. No sampling interval or physical clockwise mapping has been established, so the API does not supply a timed turn gesture. A private component probe using the original decoder distinguished the two sequences without modifying the application, but normal startup still does not reach working media input reporting.
 
 ### Lighting output
 
