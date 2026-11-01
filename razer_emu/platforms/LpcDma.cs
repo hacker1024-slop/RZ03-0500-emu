@@ -150,7 +150,9 @@ namespace Antmicro.Renode.Peripherals.DMA
                     var bit = 1U << channel;
                     if((config & 0x10) != 0) values[0x58] |= bit;
                     if((config & 0x20) != 0) values[0x60] |= bit;
-                    if((config & 8) != 0) values[offset - 4] &= ~4U;
+                    // TRIG clears at the end of a complete transfer. CLRTRIG
+                    // additionally clears it between reloaded descriptors.
+                    if((config & 8) != 0 || (config & 2) == 0) values[offset - 4] &= ~4U;
                     values[offset] &= ~1U;
                     loaded[channel] = false;
                     var pending = (values[offset - 4] & 1) != 0;

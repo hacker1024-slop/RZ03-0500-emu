@@ -19,7 +19,7 @@ namespace Antmicro.Renode.Peripherals.I2C
             foreach(var offset in new long[] {0x800,0x804,0x808,0x810,0x814,0x818,0x820,0x824,0x828})
                 values[offset] = 0;
             values[0xFF8] = 0x70; // USART, SPI and I2C present, no selected mode
-            state = 0; active = null; pending.Clear();
+            state = 0; active = null; receiveAvailable = false; pending.Clear();
             IRQ?.Unset(); DmaRead?.Unset(); DmaWrite?.Unset();
         }
         public void Attach(int address, II2CPeripheral device) { devices[address] = device; }
@@ -27,7 +27,9 @@ namespace Antmicro.Renode.Peripherals.I2C
         {
             if(offset == 0x828 && reading && active != null && (values[0x820] & 8) != 0)
             {
-                var data = values[0x828]; Receive(); return data;
+                if(!receiveAvailable) Receive();
+                receiveAvailable = false;
+                return values[0x828];
             }
             if(offset == 0x804) return Status;
             if(offset == 0x818) return Status & values[0x808];
@@ -62,7 +64,7 @@ namespace Antmicro.Renode.Peripherals.I2C
                     else { state = reading ? 1 : 2; Receive(); }
                 }
                 else if((value & 4) != 0)
-                { FlushWrite(); active?.FinishTransmission(); active = null; state = 0; }
+                { FlushWrite(); active?.FinishTransmission(); active = null; receiveAvailable = false; state = 0; }
                 else if((value & 1) != 0 && active != null)
                 {
                     if(reading) Receive();
@@ -80,7 +82,8 @@ namespace Antmicro.Renode.Peripherals.I2C
         private readonly List<byte> pending = new List<byte>();
         private void Receive()
         {
-            if(reading && active != null) values[0x828] = active.Read(1)[0];
+            if(reading && active != null)
+            { values[0x828] = active.Read(1)[0]; receiveAvailable = true; }
         }
         private uint Status => (values[0x800] & 1) == 0 ? 0 : (uint)(state << 1) | (DmaActive ? 0U : 1U);
         private bool DmaActive => (values[0x800] & 1) != 0 && (values[0x820] & 8) != 0 && active != null && (state == 1 || state == 2);
@@ -94,7 +97,7 @@ namespace Antmicro.Renode.Peripherals.I2C
         public GPIO DmaRead { get; }
         public GPIO DmaWrite { get; }
         private int state;
-        private bool reading;
+        private bool reading, receiveAvailable;
         private II2CPeripheral active;
         private readonly Dictionary<int, II2CPeripheral> devices = new Dictionary<int, II2CPeripheral>();
     }

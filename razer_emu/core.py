@@ -5,6 +5,7 @@ from importlib.resources import files
 from uuid import uuid4
 
 from .firmware import FLASH_APPLICATION, RUNTIME_BASE, Firmware
+from .lighting import LightingController
 from .usb import UsbHost
 
 
@@ -79,6 +80,7 @@ class Keyboard:
         self._machine = self._emulation.add_mach(self._name)
         Keyboard._active = True
         self._closed = False
+        self._lighting = {}
         try:
             if not Keyboard._models_loaded:
                 for name in (
@@ -89,6 +91,7 @@ class Keyboard:
                     "LpcTimer.cs",
                     "LpcDma.cs",
                     "LpcI2c.cs",
+                    "Chroma192.cs",
                     "LpcFlash.cs",
                     "LpcWatchdog.cs",
                     "LpcEzhBoolean.cs",
@@ -121,6 +124,29 @@ class Keyboard:
             self.close()
             raise
 
+    def attach_lighting(self, bus, address):
+        """Configure an inferred CHROMA 192-compatible target before execution.
+
+        Addresses are explicit because the populated addresses are not confirmed.
+        Bus 2 or 4 selects the modeled Flexcomm I2C controller.
+        """
+        from Antmicro.Renode.Peripherals.LED import RazerChroma192
+
+        self._ensure_running()
+        if self._elapsed_us or self._cpu.ExecutedInstructions:
+            raise RuntimeError("Attach lighting before firmware execution")
+        if type(bus) is not int or bus not in (2, 4):
+            raise ValueError("Lighting bus must be 2 or 4")
+        if type(address) is not int or not 0x50 <= address <= 0x5F:
+            raise ValueError("Lighting address must be 0x50 to 0x5F")
+        if (bus, address) in self._lighting:
+            raise ValueError("Lighting address already configured")
+        backend = RazerChroma192()
+        getattr(self._machine.sysbus, f"flexcomm{bus}").internal.Attach(address, backend)
+        controller = LightingController(self, backend, bus, address)
+        self._lighting[bus, address] = controller
+        return controller
+
     @staticmethod
     def _register(value):
         from Antmicro.Renode.Peripherals.CPU import RegisterValue
@@ -139,6 +165,8 @@ class Keyboard:
             raise RuntimeError("Keyboard is closed")
         self._engine.PauseAll()
         self._machine.Reset()
+        for controller in self._lighting.values():
+            controller._backend.Reset()
         self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)
         self._bus.WriteBytes(Array[Byte](bytes(0x8000)), 0x04000000)
         self._bus.WriteBytes(Array[Byte](bytes(0x4000)), 0x40100000)
@@ -196,6 +224,8 @@ class Keyboard:
             self._reason = "unsupported_ezh_instruction"
         elif self._usb_device.TransferError:
             self._reason = "unsupported_usb_transfer"
+        elif any(c._backend.UnsupportedOperation for c in self._lighting.values()):
+            self._reason = "unsupported_lighting"
         elif reads or writes:
             self._reason = "unsupported_mmio"
         elif exception in (3, 4, 5, 6) or faults:
@@ -221,7 +251,13 @@ class Keyboard:
         from Antmicro.Renode.Logging import Logger
 
         Logger.Flush()
-        return [entry.Message for entry in self._log.GetMemoryLogEntries(1000)]
+        entries = [entry.Message for entry in self._log.GetMemoryLogEntries(1000)]
+        entries.extend(
+            f"lighting {chip.bus}:{chip.address:#04x}: {chip._backend.UnsupportedOperation}"
+            for chip in self._lighting.values()
+            if chip._backend.UnsupportedOperation
+        )
+        return entries
 
     def read_memory(self, address, length):
         if self._closed:

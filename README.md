@@ -80,15 +80,33 @@ descriptor = keyboard.usb.control(SetupPacket(0x80, 6, value=0x100, length=18))
 
 `connect()`, `reset_bus()` and `control()` can also be called separately. NAK polling advances virtual time within a bounded budget. `UsbTimeout`, `UsbStall` and `UsbError` distinguish deadline expiry, firmware STALL and emulator/device errors. The current host uses 64-byte endpoint-zero packets for this high-speed keyboard. Control replies come from the firmware's USB stack, including class requests; the host contains no Razer response implementation.
 
+### Lighting output
+
+The photographed chip is branded RAZER CHROMA 192. Its observed firmware transactions match an IS31FL3733-compatible register interface. Populated addresses are still unconfirmed, so configure a target explicitly before running firmware:
+
+```python
+# Inside the Keyboard context, before stepping, running or USB enumeration:
+lighting = keyboard.attach_lighting(4, 0x50)
+keyboard.usb.enumerate_device()
+keyboard.run_for(400_000)
+channels = lighting.state()
+print(channels.pwm)  # 192 PWM bytes in driver channel order
+print(channels.levels)  # normalized PWM × global current, with on/off masking
+```
+
+The equivalent CLI option is `--lighting 4:0x50`, repeatable for distinct addresses. Its JSON adds `lighting` entries with PWM and packed enable-mask hex strings, global current, software shutdown and any unsupported operation. No lighting targets are attached by default. Bus numbers 2 and 4 select the modeled Flexcomm I2C controllers; compatible addresses range from 0x50 to 0x5F.
+
+These are logical channel levels, not calibrated light output. The physical channel-to-key/RGB mapping, external shutdown pin, automatic breathing and electrical fault detection remain incomplete. Requests to execute breathing or open/short detection stop as `unsupported_lighting`; snapshots retain the diagnostic, and `levels` raises for that unsupported operation. Reset clears lighting registers while retaining configured attachments. Snapshot access after closing the Keyboard is rejected.
+
 ## Implementation and limits
 
 - Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM/USB RAM backing, the memory bus, GPIO register behavior, the DMA copy engine and the virtual clock infrastructure.
 - The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. The incomplete bootloader capture is not executed.
 - Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA transfers, Flexcomm I²C master operations, watchdog feeding/countdown, and EZH control registers. EZH supports initial mailbox/stack/GPIO operations, heartbeat synchronization, basic arithmetic, fused shift/ALU operations, branches/calls, tight loops, Boolean detection and HOLD/vector dispatch. Its interrupt outputs and mailbox handshake are modeled, but the board's trigger/interrupt routing, emergency-vector execution and much of its instruction set remain incomplete.
 - Unknown bus accesses and unsupported operations in these models are checked every 10 virtual microseconds. Several accesses can occur within that interval before execution stops.
-- DMA0 executes SRAM descriptors with peripheral request gating, linked transfers, completion/error interrupts and aborts. Flexcomm I2C generates DMA requests for attached targets; absent targets NACK. Hardware trigger routing, bus arbitration timing and the external LED controller remain incomplete.
+- DMA0 executes SRAM descriptors with peripheral request gating, linked transfers, completion/error interrupts and aborts. Flexcomm I2C generates DMA requests for attached targets; absent targets NACK. Hardware trigger routing and bus arbitration timing remain incomplete. An explicitly configured CHROMA 192-compatible model implements page unlocking, 192 PWM channels, 24 enable bytes, global current, software shutdown and read-triggered reset.
 - The USB PHY implements control aliases and functional power/PLL readiness. The IP3511 HS controller implements bus reset, SETUP/IN/OUT packet DMA, completion interrupts, endpoint aborts, byte-count tracking and double buffering, backed by 16 KiB of USB RAM. A virtual host starts periodic SOF interrupts after bus reset, with a wrapping 11-bit frame counter. Isochronous traffic, suspend/resume, LPM and external USB transport remain incomplete.
-- Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2/3 sources are 96 MHz. Clock gating, analog behavior, resets, DMA data movement and pin electrical behavior are incomplete.
+- Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2/3 sources are 96 MHz. Clock gating, analog behavior, reset propagation and pin electrical behavior are incomplete.
 - Unloaded flash has invalid ECC; controller reads report ECC errors and CPU reads fault. No specimen settings or bootloader are fabricated. Factory trim defaults and undocumented register assumptions are described in [model notes](docs/model-notes.md). These are not a recovered copy of a particular keyboard's factory data or persistent settings.
 
 ## Tests

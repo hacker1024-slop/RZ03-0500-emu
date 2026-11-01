@@ -8,6 +8,16 @@ from .firmware import Firmware, FlashRegion
 from .usb import UsbError
 
 
+def _lighting_address(value):
+    try:
+        bus, address = (int(part, 0) for part in value.split(":"))
+        if bus not in (2, 4) or not 0x50 <= address <= 0x5F:
+            raise ValueError
+        return bus, address
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("Use BUS:ADDRESS, bus 2/4 and address 0x50–0x5F") from exc
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run original BlackWidow firmware in Renode")
     parser.add_argument("firmware", help="Raw application image with vector table")
@@ -26,6 +36,14 @@ def main(argv=None):
         metavar="DIRECTORY",
         help="Load a verified firmware-dump region (repeatable)",
     )
+    parser.add_argument(
+        "--lighting",
+        action="append",
+        type=_lighting_address,
+        default=[],
+        metavar="BUS:ADDRESS",
+        help="Attach a CHROMA 192-compatible I2C target, e.g. 4:0x50 (repeatable)",
+    )
     args = parser.parse_args(argv)
     try:
         from .core import Keyboard
@@ -34,6 +52,7 @@ def main(argv=None):
         with Keyboard(
             image, flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump]
         ) as keyboard:
+            lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
             usb = usb_error = None
             try:
                 if args.usb_enumerate:
@@ -44,6 +63,11 @@ def main(argv=None):
             result = {"firmware_sha256": image.sha256, **state.to_dict()}
             if usb is not None:
                 result["usb"] = usb
+            if lighting:
+                result["lighting"] = [
+                    {"bus": chip.bus, "address": f"0x{chip.address:02x}", **chip.state().to_dict()}
+                    for chip in lighting
+                ]
             if usb_error:
                 result["usb_error"] = usb_error
             print(json.dumps(result, indent=2))

@@ -156,3 +156,24 @@ def test_dma_bus_error_signals_error_irq_without_completion(cpu_image):
         assert dma.IRQ.IsSet
         bus.WriteDoubleWord(BASE + 0x40, 1)
         assert not dma.IRQ.IsSet
+
+
+def test_completed_transfer_requires_a_fresh_trigger_when_rearmed(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        _words(bus, SOURCE, 0x44332211)
+        _words(bus, TABLE, 0, SOURCE, TARGET, 0)
+        bus.WriteDoubleWord(BASE + 8, TABLE)
+        bus.WriteDoubleWord(BASE, 1)
+        bus.WriteDoubleWord(BASE + 0x20, 1)
+        bus.WriteDoubleWord(BASE + 0x408, 0x5015)
+        assert keyboard.run_for(1).stopped_reason is None
+        assert keyboard.read_memory(TARGET, 2) == b"\x11\0"
+        assert bus.ReadDoubleWord(BASE + 0x404) & 4 == 0
+        _words(bus, TABLE, 0, SOURCE + 1, TARGET + 1, 0)
+        bus.WriteDoubleWord(BASE + 0x408, 0x5011)  # valid, no new SWTRIG
+        keyboard.run_for(10)
+        assert keyboard.read_memory(TARGET, 2) == b"\x11\0"
+        bus.WriteDoubleWord(BASE + 0x70, 1)
+        assert keyboard.run_for(1).stopped_reason is None
+        assert keyboard.read_memory(TARGET, 2) == b"\x11\x22"
