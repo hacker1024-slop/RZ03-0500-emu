@@ -87,6 +87,7 @@ class Keyboard:
         self._lighting = {}
         self._matrix = None
         self._encoder = None
+        self._buttons = None
         try:
             if not Keyboard._models_loaded:
                 for name in (
@@ -138,6 +139,31 @@ class Keyboard:
     def matrix(self):
         self.state()
         return self._matrix
+
+    @property
+    def buttons(self):
+        self.state()
+        return self._buttons
+
+    def attach_buttons(self):
+        """Attach the two independent active-low contacts before execution."""
+        from Antmicro.Renode.Peripherals.Miscellaneous import Button
+
+        from .buttons import BUTTON_PINS, Buttons
+
+        self._ensure_running()
+        if self._elapsed_us or self._cpu.ExecutedInstructions:
+            raise RuntimeError("Attach buttons before firmware execution")
+        if self._buttons is not None:
+            raise ValueError("Buttons already configured")
+        backends = []
+        for pin in BUTTON_PINS:
+            button = Button(True)
+            button.ReleaseOnReset = False
+            button.IRQ.Connect(self._machine.sysbus.gpio.internal, pin)
+            backends.append(button)
+        self._buttons = Buttons(self, backends)
+        return self._buttons
 
     @property
     def encoder(self):

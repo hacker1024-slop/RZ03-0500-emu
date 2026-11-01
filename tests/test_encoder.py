@@ -49,3 +49,45 @@ def test_encoder_attachment_and_phase_validation(cpu_image):
         keyboard.run_for(10)
         with pytest.raises(RuntimeError, match="before firmware"):
             keyboard.attach_encoder()
+
+
+def test_private_firmware_reports_volume_and_mute_from_normal_inputs(cpu_image):
+    import os
+    import struct
+
+    from razer_emu import FlashRegion
+
+    path = os.environ.get("RAZER_TEST_FIRMWARE")
+    dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
+    if not path or not dumps:
+        pytest.skip("Set private 1.1.1 firmware and captures with default media bindings")
+    firmware = Firmware.load(path)
+    regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
+    with Keyboard(firmware, flash_regions=regions) as keyboard:
+        keyboard.attach_matrix()
+        encoder = keyboard.attach_encoder()
+        buttons = keyboard.attach_buttons()
+        keyboard.usb.enumerate_device()
+        keyboard.run_for(5000)
+        reports = []
+
+        def sample(duration):
+            for _ in range(duration // 125):
+                assert keyboard.run_for(125).stopped_reason is None
+                packet = keyboard.usb.poll_interrupt(0x82, 22)
+                if packet is not None:
+                    reports.append(packet)
+
+        # This is ordinary firmware execution throughout: no entry overrides,
+        # ready-flag writes, scanner replacement or prebuilt endpoint buffers.
+        for phase_a, phase_b in ((1, 0), (0, 0), (0, 1), (1, 1), (0, 1), (0, 0), (1, 0), (1, 1)):
+            encoder.set_phases(bool(phase_a), bool(phase_b))
+            sample(5000)
+        buttons.press(0)
+        sample(40000)
+        buttons.release(0)
+        sample(40000)
+        usages = (0xEA, 0, 0xEA, 0, 0xE9, 0, 0xE9, 0, 0xE2, 0)
+        assert reports == [struct.pack("<BH", 2, usage) + bytes(19) for usage in usages]
+        assert keyboard.read_memory(0x20000000, len(firmware.image)) == firmware.image
+        assert keyboard.state().stopped_reason is None
