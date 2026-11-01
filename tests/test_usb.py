@@ -232,6 +232,19 @@ def test_private_firmware_enumerates_and_handles_razer_feature_reports(cpu_image
                 lengths[interface] = length
             offset += size
         assert lengths == {0: 61, 1: 177, 2: 88, 3: 22, 4: 327}
+        # Exercise ordinary HID host initialization and state readback through
+        # firmware, including transitions between boot and report protocol.
+        for interface in range(5):
+            for protocol in (0, 1):
+                host.control(SetupPacket(0x21, 11, value=protocol, index=interface))
+                assert host.control(SetupPacket(0xA1, 3, index=interface, length=1)) == bytes(
+                    [protocol]
+                )
+            for idle in (7, 0):
+                host.control(SetupPacket(0x21, 10, value=idle << 8, index=interface))
+                assert host.control(SetupPacket(0xA1, 2, index=interface, length=1)) == bytes(
+                    [idle]
+                )
         # Actual 90-byte Razer feature traffic, spanning multiple USB packets.
         # Query 00/87 returns the installed firmware version; no host-side reply
         # implementation or proprietary binary fixture is supplied by this test.
