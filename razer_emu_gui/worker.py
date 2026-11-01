@@ -36,13 +36,31 @@ async def run(configuration):
 
     threading.Thread(target=receive, daemon=True).start()
     with Keyboard(
-        image, flash_regions=regions, bootloader=Bootloader.load_dump(boot) if boot else None
+        image,
+        flash_regions=regions,
+        bootloader=Bootloader.load_dump(boot) if boot else None,
+        check_interval_us=125,
     ) as keyboard:
         matrix = keyboard.attach_matrix()
         buttons = keyboard.attach_buttons()
         chips = [keyboard.attach_lighting(c["bus"], c["address"]) for c in layout["controllers"]]
         enumeration = keyboard.usb.enumerate_device()
         exported = configuration.get("usbip")
+        pump = None
+        endpoints = {
+            address: (size, interval) for address, size, interval in enumeration.interrupt_inputs
+        }
+
+        def start_polling():
+            from Antmicro.Renode.Peripherals.USB import RazerUsbInterruptPump
+
+            backend = RazerUsbInterruptPump(keyboard._usb_device)
+            for address, (size, interval) in endpoints.items():
+                backend.Add(address, address & 15, size, 0, size, interval)
+            return backend
+
+        if not exported:
+            pump = start_polling()
         transport = None
         if exported:
             from razer_emu.usbip import UsbIpServer
@@ -52,6 +70,7 @@ async def run(configuration):
         running = True
         report = ""
         last_frame = 0.0
+        state = keyboard.state()
 
         def contact(index, pressed):
             key = layout["keys"][index]
@@ -79,6 +98,7 @@ async def run(configuration):
                     release_all()
                     keyboard.reset()
                     enumeration = keyboard.usb.enumerate_device()
+                    pump = start_polling()
                     report = ""
                     running = True
                 elif kind == "running" and not exported:
@@ -103,18 +123,26 @@ async def run(configuration):
             if transport and transport.done():
                 transport.result()
             if running:
-                state = keyboard.state() if exported else keyboard.run_for(1000)
+                state = keyboard.state() if exported else keyboard.run_for(5000, _usb_pump=pump)
                 if state.stopped_reason:
                     raise RuntimeError(
                         state.stopped_reason + ": " + "; ".join(keyboard.logs()[-5:])
                     )
-                for endpoint, size, interval in () if exported else enumeration.interrupt_inputs:
-                    packet = keyboard.usb.poll_interrupt(endpoint, size, interval_us=interval)
-                    if packet is not None:
-                        report = f"0x{endpoint:02x}  {packet.hex(' ')}"
-                        emit({"type": "report", "endpoint": endpoint, "data": packet.hex()})
+                if not exported and not keyboard._usb_device.Connected:
+                    raise RuntimeError("Virtual USB device is disconnected")
+                for completion in () if exported else pump.Drain():
+                    endpoint = int(completion.Sequence)
+                    if completion.Status:
+                        raise RuntimeError(
+                            f"USB input endpoint 0x{endpoint:02x}: {completion.Status}"
+                        )
+                    packet = bytes(completion.Data)
+                    report = f"0x{endpoint:02x}  {packet.hex(' ')}"
+                    emit({"type": "report", "endpoint": endpoint, "data": packet.hex()})
+                    size, interval = endpoints[endpoint]
+                    pump.Add(endpoint, endpoint & 15, size, 0, size, interval)
                 for index, due in list(releases.items()):
-                    if keyboard.state().elapsed_us >= due:
+                    if state.elapsed_us >= due:
                         contact(index, False)
                         del held[index]
                         del releases[index]
@@ -126,7 +154,8 @@ async def run(configuration):
                     {
                         "type": "frame",
                         "running": running,
-                        "virtual_us": keyboard.state().elapsed_us,
+                        "virtual_us": state.elapsed_us,
+                        "wall_seconds": now,
                         "colors": key_colors(layout, [c.state() for c in chips]),
                         "pressed": list(held),
                         "report": report,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Antmicro.Renode.Peripherals.Memory;
 using System.Collections.Generic;
@@ -21,6 +22,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             this.machine = machine;
             this.sram = sram;
+            var segmentSize = sram.SegmentSize;
+            while((1U << segmentShift) < segmentSize) segmentShift++;
+            if((1U << segmentShift) != segmentSize) throw new ArgumentException("Expected power-of-two SRAM segments");
+            segmentMask = (uint)segmentSize - 1;
             // Unattached contacts still expose the actual shared pin levels.
             // A matrix attachment replaces these delegates with its contact network.
             InputPins = (output, direction) => gpio.ReadSharedPort0(output, direction);
@@ -28,7 +33,6 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             var channels = new Dictionary<int, IGPIO>();
             for(var i = 0; i < 24; i++) channels[i] = new GPIO();
             Connections = channels;
-            // One callback per microsecond, executing all 96 EZH clock cycles.
             clock = new LimitTimer(machine.ClockSource, 1000000, this, "ezh", limit: 1,
                 eventEnabled: true, workMode: WorkMode.Periodic);
             clock.LimitReached += () => AdvanceCycles(96);
@@ -65,33 +69,50 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 if((value >> 16) != 0xC0DE) return;
                 var wasRunning = Running;
-                values[0x24] = control = value & 0x1F;
-                Running = (value & 1) != 0;
-                if(Running && !wasRunning)
+                var requestedRunning = (value & 1) != 0;
+                if(requestedRunning && !wasRunning)
                 {
                     pc = values[0x20] & ~3U;
                     holding = waitForBeat = syncToBeat = false;
                     heartbeatPeriod = heartbeatLeft = loopRemaining = 0;
                     branches.Clear();
                 }
-                clock.Enabled = Running;
+                values[0x24] = control = value & 0x1F;
+                System.Threading.Interlocked.Increment(ref inputGeneration);
+                Running = requestedRunning;
+                clock.Enabled = Running && !ExternalClock;
                 return;
             }
             base.WriteDoubleWord(offset, value);
             if(offset == 0x30) breakpoint = value;
             if(offset == 0x34) breakpointHandler = value;
-            if(offset == 0x48) detector.Invalidate();
+            if(offset == 0x48)
+            {
+                detector.Invalidate();
+                System.Threading.Interlocked.Increment(ref inputGeneration);
+            }
             if(offset == 0x44 && (values[0x40] & 3) == 2) IRQ.Blink();
         }
+        public bool ExternalClock
+        {
+            get => externalClock;
+            set { externalClock = value; if(clock != null) clock.Enabled = Running && !externalClock; }
+        }
+        private bool externalClock;
         public Func<uint, uint, uint> InputPins { get; set; }
         public uint GetRegister(int index)
         {
             if(index < 0 || index > 15) throw new ArgumentOutOfRangeException(nameof(index));
             return index == 13 ? pc : ReadRegister(index);
         }
-        public void OnGPIO(int number, bool value) => detector.SetInput(number, value);
+        public void OnGPIO(int number, bool value)
+        {
+            detector.SetInput(number, value);
+            System.Threading.Interlocked.Increment(ref inputGeneration);
+        }
         public ulong Instructions { get; private set; }
-        public bool Running { get; private set; }
+        private volatile bool running;
+        public bool Running { get => running; private set => running = value; }
         public bool Holding => holding;
         public ulong Cycles { get; private set; }
         public bool BusFault { get; private set; }
@@ -284,7 +305,15 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                         }
                         WriteRegister(destination, value, flags); break;
                     }
-                    if(Running) CompleteInstruction();
+                    if(Running)
+                    {
+                        var noPendingLoop = loopRemaining == 0;
+                        var branchTargetsSelf = pc == instructionAddress;
+                        CompleteInstruction();
+                        if(LoopFolding && noPendingLoop && branchTargetsSelf && loopRemaining == 0 &&
+                            pc == instructionAddress && branches.Count == 0 && IsPurePcInstruction(word))
+                            i += FoldSelfBranch(word, instructionAddress, count - i - 1);
+                    }
                 }
                 catch(BusAccessException)
                 {
@@ -296,23 +325,18 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 }
             }
         }
-        private uint ReadWord(uint address)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe uint ReadWord(uint address)
         {
             accessAddress = address;
-            // SRAM is the same mapped storage used by the ARM CPU. All writes
-            // still use the bus, preserving translated-code invalidation; flash
-            // and peripheral reads retain their bus/ECC/fault behavior.
-            if(address >= 0x20000000 && address <= 0x2002FFFC && (address & 3) == 0)
-                return unchecked((uint)Marshal.ReadInt32(SramPointer(address),
-                    (int)((address - 0x20000000) % sram.SegmentSize)));
+            if(address >= 0x20000000 && address <= 0x2002FFFC && (address & 3) == 0) return *(uint*)((byte*)SramPointer(address) + (address & segmentMask));
             return machine.SystemBus.ReadDoubleWord(address);
         }
-        private byte ReadByte(uint address)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe byte ReadByte(uint address)
         {
             accessAddress = address;
-            if(address >= 0x20000000 && address < 0x20030000)
-                return Marshal.ReadByte(SramPointer(address),
-                    (int)((address - 0x20000000) % sram.SegmentSize));
+            if(address >= 0x20000000 && address < 0x20030000) return *((byte*)SramPointer(address) + (address & segmentMask));
             return machine.SystemBus.ReadByte(address);
         }
         private void WriteWord(uint address, uint value)
@@ -325,6 +349,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             accessAddress = address;
             machine.SystemBus.WriteByte(address, value);
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void CompleteInstruction()
         {
             Instructions++;
@@ -363,9 +388,11 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             WriteRegister(destination, target, accelerated && destination == 13);
             return true;
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Implemented(uint opcode) => opcode == 0 || opcode == 1 || opcode == 2 ||
             opcode == 4 || opcode == 5 || opcode == 6 || opcode == 8 || opcode == 12 || opcode == 13 ||
             opcode == 14 || opcode == 0x10 || opcode == 0x12 || opcode == 0x15 || opcode == 0x18 || opcode == 0x1A || opcode == 0x1C;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private uint ReadRegister(int register)
         {
             if(register == 14 && InputPins != null) return InputPins(registers[8], registers[9]);
@@ -373,6 +400,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             if(register == 11) return detector.Mode;
             return register == 13 ? pc + 4 : registers[register];
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void WriteRegister(int register, uint value, bool flags)
         {
             if(register == 13)
@@ -394,6 +422,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 }
             }
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private bool Condition(int condition)
         {
             if(condition >= 1 && condition <= 9) return (flagsMask & (1 << condition)) != 0;
@@ -420,6 +449,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             default: return (value >> amount) | (value << (32 - amount));
             }
         }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static int SignExtend(uint value, int width) => (int)(value << (32 - width)) >> (32 - width);
         private void Fail(uint address, uint word)
         {
@@ -427,25 +457,78 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             UnsupportedInstruction = true;
             pc = address; Running = false; clock.Enabled = false;
         }
+        public bool LoopFolding { get; set; } = true;
+        private int inputGeneration;
+        private static bool PlainRegister(int register) => register != 10 && register != 11 && register != 14;
+        private static bool IsPurePcInstruction(uint word)
+        {
+            var opcode = word & 31;
+            var source = (int)((word >> 14) & 15);
+            var second = (int)((word >> 20) & 15);
+            if(opcode == 0x15)
+            {
+                var condition = (word >> 5) & 15;
+                return condition != 10 && condition != 11 && (word & 1024) == 0 &&
+                    ((word & 512) != 0 || PlainRegister(source));
+            }
+            if(((word >> 10) & 15) != 13 || (word & 512) != 0) return false;
+            switch(opcode)
+            {
+            case 0: return (word & (1 << 18)) != 0 || PlainRegister(source);
+            case 6: case 8: case 12: case 13: case 14:
+                return PlainRegister(source) && ((word & (1 << 18)) != 0 || PlainRegister(second));
+            case 0x10: return PlainRegister(source) && PlainRegister(second);
+            case 0x18: return PlainRegister(source) && ((word & (1 << 18)) == 0 || PlainRegister(second));
+            default: return false;
+            }
+        }
+        private unsafe uint ReadFoldWord(uint address) => System.Threading.Volatile.Read(
+            ref *(uint*)((byte*)SramPointer(address) + (address & segmentMask)));
+        private int FoldSelfBranch(uint word, uint address, int budget)
+        {
+            if(address < 0x20000000 || address > 0x2002FFFC || (address & 3) != 0) return 0;
+            var generation = System.Threading.Volatile.Read(ref inputGeneration);
+            var condition = (int)((word >> 5) & 15);
+            var advanced = 0;
+            while(advanced < budget && Running && pc == address && breakpoint != address &&
+                System.Threading.Volatile.Read(ref inputGeneration) == generation && !detector.Dirty &&
+                Condition(condition) && ReadFoldWord(address) == word &&
+                (heartbeatPeriod == 0 || heartbeatLeft != 0))
+            {
+                var chunk = Math.Min(32, budget - advanced);
+                var untilBeat = heartbeatLeft;
+                if(heartbeatPeriod != 0 && (uint)chunk > untilBeat) chunk = (int)untilBeat;
+                var instructions = syncToBeat ? (heartbeatPeriod == 0 ? chunk : ((uint)chunk == untilBeat ? 1 : 0)) : chunk;
+                Cycles += (ulong)chunk;
+                Instructions += (ulong)instructions;
+                if(heartbeatPeriod != 0)
+                {
+                    heartbeatLeft -= (uint)chunk;
+                    if(heartbeatLeft == 0) heartbeatLeft = heartbeatPeriod;
+                }
+                advanced += chunk;
+            }
+            return advanced;
+        }
         private readonly IMachine machine;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private IntPtr SramPointer(uint address)
         {
             if(sramPointers == null) sramPointers = new IntPtr[sram.SegmentCount];
-            var index = (int)((address - 0x20000000) / sram.SegmentSize);
-            if(sramPointers[index] == IntPtr.Zero)
-            {
-                sram.TouchSegment(index);
-                sramPointers[index] = sram.GetSegment(index);
-            }
+            var index = (int)((address - 0x20000000) >> segmentShift);
+            if(sramPointers[index] == IntPtr.Zero) { sram.TouchSegment(index); sramPointers[index] = sram.GetSegment(index); }
             return sramPointers[index];
         }
+        private readonly int segmentShift;
+        private readonly uint segmentMask;
         private IntPtr[] sramPointers;
-        private uint control, breakpoint, breakpointHandler;
+        private volatile uint control, breakpoint, breakpointHandler;
         private readonly MappedMemory sram;
         private readonly LimitTimer clock;
         private readonly uint[] registers = new uint[16];
         private readonly RazerEzhBoolean detector = new RazerEzhBoolean();
-        private uint pc, heartbeatPeriod, heartbeatLeft, accessAddress;
+        private volatile uint pc;
+        private uint heartbeatPeriod, heartbeatLeft, accessAddress;
         private uint loopStart, loopEnd, loopRemaining;
         private uint holdWord, holdAddress, holdTable;
         private readonly List<ScheduledBranch> branches = new List<ScheduledBranch>();

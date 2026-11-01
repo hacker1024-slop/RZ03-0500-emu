@@ -36,16 +36,17 @@ def test_bounded_runs_end_at_partial_sync_quantum(cpu_image, duration):
             assert state.elapsed_us == before + duration
 
 
-def test_unknown_mmio_is_reported_and_stops_run(cpu_image):
+@pytest.mark.parametrize("interval_us", [10, 125])
+def test_unknown_mmio_is_reported_and_stops_run(cpu_image, interval_us):
     # Thumb: ldr r0,[pc,#4]; ldr r1,[r0]; b .; nop; .word 0x400ff000
     image = bytearray(Firmware.load(cpu_image).image)
     struct.pack_into("<I", image, 4, 0x20000141)
     image[0x140:0x14C] = bytes.fromhex("01480168fee700bf00f00f40")
-    with Keyboard(Firmware.from_bytes(image)) as keyboard:
-        state = keyboard.run_for(100)
+    with Keyboard(Firmware.from_bytes(image), check_interval_us=interval_us) as keyboard:
+        state = keyboard.run_for(500)
         assert state.stopped_reason == "unsupported_mmio"
         assert state.unknown_reads > 0
-        assert state.elapsed_us == 10
+        assert state.elapsed_us == interval_us
         assert any("400FF000" in line.upper() for line in keyboard.logs())
         with pytest.raises(RuntimeError, match="reset"):
             keyboard.run_for(100)

@@ -1,6 +1,6 @@
 include LICENSE README.md shell.nix
 recursive-include docs *.md
 recursive-include razer_emu/platforms *.cs *.repl
-recursive-include tests *.py *.S
+recursive-include tests *.py *.S *.cs
 
 include examples/razer_updater_query.c

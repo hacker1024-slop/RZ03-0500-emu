@@ -34,6 +34,9 @@ class State:
 class Keyboard:
     """A synchronous core for CLI/GUI workers. Call from one owning thread.
 
+    Fault and unsupported-access checks default to every 10 virtual microseconds.
+    check_interval_us can increase this to reduce synchronization overhead; the
+    GUI uses 125 us. Execution still ends at the requested virtual-time boundary.
     Runs only virtual hardware. Unknown MMIO stops a bounded run; it never implies
     a successful boot. Renode's process-global emulation advances all its machines,
     so only one Keyboard instance is currently supported in each process.
@@ -61,8 +64,15 @@ class Keyboard:
     )
 
     def __init__(
-        self, firmware: Firmware, *, flash_regions=(), bootloader: Bootloader | None = None
+        self,
+        firmware: Firmware,
+        *,
+        flash_regions=(),
+        bootloader: Bootloader | None = None,
+        check_interval_us: int = 10,
     ):
+        if type(check_interval_us) is not int or not 1 <= check_interval_us <= 1000:
+            raise ValueError("check_interval_us must be an integer from 1 to 1000")
         if Keyboard._active:
             raise RuntimeError("Use one Keyboard per process")
         # Renode is deliberately lazy-loaded, allowing file inspection without it.
@@ -92,6 +102,7 @@ class Keyboard:
         try:
             if not Keyboard._models_loaded:
                 for name in (
+                    "CortexMTime.cs",
                     "LpcGpio.cs",
                     "LpcSyscon.cs",
                     "LpcUsbPhy.cs",
@@ -105,7 +116,9 @@ class Keyboard:
                     "LpcEzhBoolean.cs",
                     "LpcEzh.cs",
                     "DiodeMatrix.cs",
+                    "UsbInterruptPump.cs",
                     "ExecutionRunner.cs",
+                    "EzhCpu.cs",
                 ):
                     model = files("razer_emu").joinpath("platforms/" + name)
                     _, error = Monitor().execute(f"include @{model}")
@@ -132,17 +145,22 @@ class Keyboard:
                 self._machine.sysbus.syscon.internal,
                 self._machine.sysbus.gpio.internal,
             )
+            self._runner.CheckIntervalUs = check_interval_us
 
             flash = self._machine.sysbus.flash.internal
             for region in flash_regions:
                 flash.LoadRegion(
-                    region.address, Array[Byte](region.data), Array[Byte](region.valid_mask)
+                    region.address,
+                    Array[Byte](region.data),
+                    Array[Byte](region.valid_mask),
                 )
             if bootloader is not None:
                 flash.LoadImage(0, Array[Byte](bootloader.image))
                 flash.LoadImage(FLASH_APPLICATION, Array[Byte](firmware.image))
             self._watchdog = self._machine.sysbus.wwdt.internal
+            self._cpu.ConfigureWatchdogFastPath(self._watchdog)
             self._ezh = self._machine.sysbus.ezh.internal
+            self._ezh_cpu = self._machine.sysbus.ezhCpu.internal
             self._usb_device = self._machine.sysbus.usbDevice.internal
             self.usb = UsbHost(self, self._usb_device)
             self.reset()
@@ -247,7 +265,13 @@ class Keyboard:
 
     @staticmethod
     def _value(register):
-        return int(str(register), 16)
+        return int(register.RawValue)
+
+    def _hard_pause_processors(self):
+        for name in ("_cpu", "_ezh_cpu"):
+            processor = getattr(self, name, None)
+            if processor is not None:
+                processor.HardPauseForControl()
 
     def reset(self):
         """Reset into the supplied bootloader, or recreate the application handoff."""
@@ -256,6 +280,7 @@ class Keyboard:
         if self._closed:
             raise RuntimeError("Keyboard is closed")
         self._input_playback = None
+        self._hard_pause_processors()
         self._engine.PauseAll()
         self._machine.Reset()
         self.usb._reset_timing()
@@ -297,12 +322,26 @@ class Keyboard:
         if not 1 <= count <= 1000:
             raise ValueError("Step count must be between 1 and 1000")
         self._ensure_running()
-        self._cpu.Step(count)
-        self._engine.PauseAll()
+        from Antmicro.Renode.Time import TimeInterval
+
+        self._hard_pause_processors()
+        self._ezh_cpu.EnterTimerDrivenMode()
+        source = self._engine.MasterTimeSource
+        local = self._machine.internal.LocalTimeSource
+        quantum, local_quantum = source.Quantum, local.Quantum
+        # Stepping leaves an unfinished grant in Renode's time handles. Bound
+        # both grant layers by the smallest supported timed run, so resuming a
+        # partial step cannot overrun a later run_for(1) request.
+        source.Quantum = local.Quantum = TimeInterval.FromMicroseconds(1)
+        try:
+            self._cpu.Step(count)
+        finally:
+            self._engine.PauseAll()
+            source.Quantum, local.Quantum = quantum, local_quantum
         return self.state()
 
-    def run_for(self, microseconds):
-        """Advance bounded virtual time, checking faults and missing models every 10 us."""
+    def run_for(self, microseconds, *, _usb_pump=None):
+        """Advance bounded virtual time, checking faults at the configured interval."""
         from Antmicro.Renode.Peripherals.CPU import ExecutionMode
 
         if not isinstance(microseconds, int) or not 1 <= microseconds <= 10_000_000:
@@ -319,23 +358,31 @@ class Keyboard:
             from Antmicro.Renode.Peripherals.LED import RazerChroma192
             from System import Array
 
-            advanced = int(
-                self._runner.Run(
-                    quantum,
-                    self._initial_reads,
-                    self._initial_writes,
-                    self._watchdog,
-                    self._ezh,
-                    self._usb_device,
-                    Array[RazerChroma192]([c._backend for c in self._lighting.values()]),
-                )
+            lights = Array[RazerChroma192]([c._backend for c in self._lighting.values()])
+            args = (
+                quantum,
+                self._initial_reads,
+                self._initial_writes,
+                self._watchdog,
+                self._ezh,
+                self._usb_device,
+                lights,
             )
-            self._elapsed_us += advanced
-            remaining -= advanced
-            self.state()
+            try:
+                if _usb_pump is None:
+                    self._runner.Run(*args)
+                else:
+                    _usb_pump.BeginBatch(self._elapsed_us)
+                    self._runner.RunScheduled(*args, _usb_pump.ScheduledServiceHook)
+            finally:
+                advanced = int(self._runner.LastElapsedUs)
+                self._elapsed_us += advanced
+                remaining -= advanced
+            state = self.state()
         if not self._reason and self._input_playback is not None:
             self._input_playback._apply_due(self._elapsed_us)
-        return self.state()
+            return self.state()
+        return state
 
     def state(self):
         if self._closed:
@@ -420,6 +467,7 @@ class Keyboard:
             return
         from Antmicro.Renode.Logging import Logger
 
+        self._hard_pause_processors()
         self._engine.PauseAll()
         self._emulation.rem_mach(self._name)
         Logger.RemoveBackend(self._log)

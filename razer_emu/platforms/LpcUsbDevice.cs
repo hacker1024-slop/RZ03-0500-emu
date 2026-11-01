@@ -117,9 +117,9 @@ namespace Antmicro.Renode.Peripherals.USB
             ValidatePacket(endpoint, maximumPacketSize);
             var index = endpoint * 2 + 1;
             var handshake = Prepare(index, out var bank, out var command, out var address);
-            if(handshake != RazerUsbHandshake.Ack) return new RazerUsbPacket(handshake, new byte[0]);
+            if(handshake != RazerUsbHandshake.Ack) return handshake == RazerUsbHandshake.Nak ? nak : stall;
             var count = Math.Min((int)((command >> 11) & 0x7FFF), maximumPacketSize);
-            if(!ValidBuffer(address, count)) return new RazerUsbPacket(RazerUsbHandshake.Nak, new byte[0]);
+            if(!ValidBuffer(address, count)) return nak;
             var data = machine.SystemBus.ReadBytes(address, count);
             FinishPacket(index, bank, command, count, false);
             return new RazerUsbPacket(RazerUsbHandshake.Ack, data);
@@ -274,6 +274,8 @@ namespace Antmicro.Renode.Peripherals.USB
             UpdateInterrupt();
         }
         private void UpdateInterrupt() => IRQ.Set((values[32] & values[36]) != 0);
+        private static readonly RazerUsbPacket nak = new RazerUsbPacket(RazerUsbHandshake.Nak, Array.Empty<byte>());
+        private static readonly RazerUsbPacket stall = new RazerUsbPacket(RazerUsbHandshake.Stall, Array.Empty<byte>());
         private readonly IMachine machine;
         private readonly RazerLpcUsbPhy phy;
         private bool vbusPresent;

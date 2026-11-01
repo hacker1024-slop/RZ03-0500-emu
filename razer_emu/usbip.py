@@ -53,7 +53,9 @@ class UsbIpServer:
             if kind == 4 and length >= 9 and item[3] == 0:
                 self.interfaces.append(item[5:8] + b"\0")
             if kind == 5 and length >= 7:
-                address, attributes, size, interval = struct.unpack_from("<BBHB", item, 2)
+                address, attributes, size, interval = struct.unpack_from(
+                    "<BBHB", item, 2
+                )
                 if attributes & 3 == 3 and address & 0x80:
                     if not 1 <= interval <= 16 or not 1 <= size <= 1024:
                         raise ValueError("Unsupported high-speed interrupt descriptor")
@@ -85,7 +87,9 @@ class UsbIpServer:
 
     async def serve(self, address="127.0.0.1", port=3240):
         """Serve until cancelled; close clients before returning."""
-        server = await asyncio.start_server(self._client, address, port, limit=MAX_TRANSFER + 48)
+        server = await asyncio.start_server(
+            self._client, address, port, limit=MAX_TRANSFER + 48
+        )
         try:
             async with server:
                 await server.serve_forever()
@@ -100,7 +104,9 @@ class UsbIpServer:
         self._clients.add(task)
         imported = False
         try:
-            version, operation, status = struct.unpack("!HHI", await reader.readexactly(8))
+            version, operation, status = struct.unpack(
+                "!HHI", await reader.readexactly(8)
+            )
             if version != VERSION or status:
                 return
             if operation == 0x8005:
@@ -117,7 +123,9 @@ class UsbIpServer:
                     # must already have its own server-side USB address.
                     self.host.control(SetupPacket(0, 5, value=1))
                     self.keyboard.run_for(2000)
-                    writer.write(struct.pack("!HHI", VERSION, 3, 0) + self._device_record())
+                    writer.write(
+                        struct.pack("!HHI", VERSION, 3, 0) + self._device_record()
+                    )
                     await writer.drain()
                     await self._transfers(reader, writer)
             await writer.drain()
@@ -172,6 +180,11 @@ class UsbIpServer:
 
     async def _transfers(self, reader, writer):
         pending = {}
+        pump = None
+        if hasattr(self.keyboard, "_runner"):
+            from Antmicro.Renode.Peripherals.USB import RazerUsbInterruptPump
+
+            pump = RazerUsbInterruptPump(self.keyboard._usb_device)
         receive = asyncio.create_task(self._read_request(reader))
         try:
             while True:
@@ -183,11 +196,18 @@ class UsbIpServer:
                     if command == 2:
                         target = struct.unpack_from("!I", raw, 20)[0]
                         removed = pending.pop(target, None)
+                        if pump is not None and removed is not None:
+                            removed = pump.Cancel(target)
                         self._reply(
-                            writer, sequence, -errno.ECONNRESET if removed else 0, unlink=True
+                            writer,
+                            sequence,
+                            -errno.ECONNRESET if removed else 0,
+                            unlink=True,
                         )
                     elif command == 1:
-                        flags, length, _, packets, _ = struct.unpack_from("!Iiiii", raw, 20)
+                        flags, length, _, packets, _ = struct.unpack_from(
+                            "!Iiiii", raw, 20
+                        )
                         if not 0 <= length <= MAX_TRANSFER or packets not in (0, -1):
                             raise ValueError(
                                 "Unsupported USB/IP transfer length or isochronous request"
@@ -199,7 +219,8 @@ class UsbIpServer:
                         if endpoint == 0:
                             setup = SetupPacket(*struct.unpack("<BBHHH", raw[40:48]))
                             if setup.length > length or (
-                                setup.length and bool(direction) != bool(setup.request_type & 128)
+                                setup.length
+                                and bool(direction) != bool(setup.request_type & 128)
                             ):
                                 raise ValueError(
                                     "USB/IP setup and transfer length/direction disagree"
@@ -219,45 +240,81 @@ class UsbIpServer:
                         elif direction == 1 and endpoint in self.endpoints:
                             if length == 0:
                                 self._reply(writer, sequence)
-                                receive = asyncio.create_task(self._read_request(reader))
+                                receive = asyncio.create_task(
+                                    self._read_request(reader)
+                                )
                                 continue
                             if len(pending) >= 128:
                                 raise ValueError("Too many pending USB/IP transfers")
-                            pending[sequence] = _Pending(endpoint, length, flags, bytearray())
+                            if pump is None:
+                                pending[sequence] = _Pending(
+                                    endpoint, length, flags, bytearray()
+                                )
+                            else:
+                                size, interval = self.endpoints[endpoint]
+                                pump.Add(
+                                    sequence, endpoint, length, flags, size, interval
+                                )
+                                pending[sequence] = True
                         else:
                             self._reply(writer, sequence, -errno.EPIPE)
                     else:
                         raise ValueError("Unsupported USB/IP command")
                     receive = asyncio.create_task(self._read_request(reader))
-                # Queue order matters when several URBs target the same endpoint.
-                visited = set()
-                for sequence, request in tuple(pending.items()):
-                    if request.endpoint in visited:
-                        continue
-                    visited.add(request.endpoint)
-                    size, interval = self.endpoints[request.endpoint]
-                    try:
-                        packet = self.host.poll_interrupt(
-                            request.endpoint | 128, size, interval_us=interval
+                if pump is None:
+                    # Queue order matters when several URBs target the same endpoint.
+                    visited = set()
+                    for sequence, request in tuple(pending.items()):
+                        if request.endpoint in visited:
+                            continue
+                        visited.add(request.endpoint)
+                        size, interval = self.endpoints[request.endpoint]
+                        try:
+                            packet = self.host.poll_interrupt(
+                                request.endpoint | 128, size, interval_us=interval
+                            )
+                        except UsbStall:
+                            self._reply(writer, sequence, -errno.EPIPE)
+                            del pending[sequence]
+                            continue
+                        if packet is None:
+                            continue
+                        remaining = request.length - len(request.data)
+                        request.data.extend(packet[:remaining])
+                        short = len(packet) < size
+                        if (
+                            len(packet) > remaining
+                            or short
+                            or len(request.data) == request.length
+                        ):
+                            status = -errno.EOVERFLOW if len(packet) > remaining else 0
+                            if (
+                                short
+                                and request.flags & 1
+                                and len(request.data) < request.length
+                            ):
+                                status = -errno.EREMOTEIO
+                            self._reply(writer, sequence, status, bytes(request.data))
+                            del pending[sequence]
+                else:
+                    state = self.keyboard.run_for(5000, _usb_pump=pump)
+                    if state.stopped_reason:
+                        raise UsbError(f"Emulation stopped: {state.stopped_reason}")
+                    for completion in pump.Drain():
+                        sequence = int(completion.Sequence)
+                        pending.pop(sequence, None)
+                        self._reply(
+                            writer,
+                            sequence,
+                            int(completion.Status),
+                            bytes(completion.Data),
                         )
-                    except UsbStall:
-                        self._reply(writer, sequence, -errno.EPIPE)
-                        del pending[sequence]
-                        continue
-                    if packet is None:
-                        continue
-                    remaining = request.length - len(request.data)
-                    request.data.extend(packet[:remaining])
-                    short = len(packet) < size
-                    if len(packet) > remaining or short or len(request.data) == request.length:
-                        status = -errno.EOVERFLOW if len(packet) > remaining else 0
-                        if short and request.flags & 1 and len(request.data) < request.length:
-                            status = -errno.EREMOTEIO
-                        self._reply(writer, sequence, status, bytes(request.data))
-                        del pending[sequence]
                 await writer.drain()
-                self.keyboard.run_for(125)
-                self.host._check()
+                if pump is None:
+                    self.keyboard.run_for(125)
+                    self.host._check()
+                if pump is not None and not self.keyboard._usb_device.Connected:
+                    raise UsbError("Virtual USB device is disconnected")
                 # Yield to sockets and cancellation even with continuous NAKs.
                 await asyncio.sleep(0)
         finally:

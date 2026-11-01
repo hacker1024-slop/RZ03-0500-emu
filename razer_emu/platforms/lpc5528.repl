@@ -1,4 +1,4 @@
-cpu: CPU.CortexM @ sysbus
+cpu: CPU.RazerCortexM @ sysbus
     cpuType: "cortex-m33"
     nvic: nvic
 nvic: IRQControllers.NVIC @ sysbus 0xe000e000
@@ -97,3 +97,6 @@ usbDevice: USB.RazerLpcUsbDevice @ {
     }
     phy: usbPhy
     IRQ -> nvic@47
+
+ezhCpu: CPU.RazerEzhCpu @ sysbus
+    ezh: ezh

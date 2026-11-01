@@ -102,7 +102,7 @@ ApplicationWindow {
             spacing: 24
             Rectangle { width: 7; height: 7; radius: 4; color: emulator.running ? "#8fe388" : "#8195aa" }
             Label { text: emulator.status; color: "#d0deea"; Layout.fillWidth: true; elide: Text.ElideRight }
-            Label { text: "VIRTUAL TIME  " + emulator.virtualTime; color: "#8195aa"; font.family: "monospace" }
+            Label { text: "VIRTUAL TIME  " + emulator.virtualTime + "  ·  " + emulator.speed; color: "#8195aa"; font.family: "monospace" }
         }
         Label { text: emulator.captureSummary; color: "#8195aa"; font.pixelSize: 11 }
         Label { text: "Click to press · Live RGB is shown by key indicators · Photo lighting is decorative"; color: "#8195aa"; font.pixelSize: 12 }

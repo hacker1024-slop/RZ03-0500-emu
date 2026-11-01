@@ -27,6 +27,11 @@ def main(argv=None):
         "--microseconds", type=int, default=1000, help="Virtual runtime (default 1000)"
     )
     parser.add_argument(
+        "--check-interval-us",
+        type=int,
+        help="Fault-check interval, 1–1000 virtual us (default: 125 for USB/IP, otherwise 10)",
+    )
+    parser.add_argument(
         "--input-script",
         metavar="JSON",
         help="Play timestamped matrix/encoder/button inputs after USB setup (if requested)",
@@ -65,6 +70,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be 1 to 65535")
+    if args.check_interval_us is not None and not 1 <= args.check_interval_us <= 1000:
+        parser.error("Fault-check interval must be 1 to 1000 microseconds")
     try:
         script = InputScript.load(args.input_script) if args.input_script else None
         if args.usbip is None and not 1 <= args.microseconds <= 10_000_000:
@@ -78,6 +85,13 @@ def main(argv=None):
             image,
             flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump],
             bootloader=Bootloader.load_dump(args.bootloader_dump) if args.bootloader_dump else None,
+            check_interval_us=(
+                args.check_interval_us
+                if args.check_interval_us is not None
+                else 125
+                if args.usbip is not None
+                else 10
+            ),
         ) as keyboard:
             playback = keyboard.prepare_input_script(script) if script else None
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]

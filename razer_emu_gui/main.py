@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+from collections import deque
 from importlib.resources import files
 from pathlib import Path
 
@@ -37,6 +38,8 @@ class EmulatorBridge(QObject):
         self._running = False
         self._status = "Choose an application image to begin"
         self._virtual = "0.000 s"
+        self._speed = "—"
+        self._speed_samples = deque(maxlen=21)
         self._report = "No USB input reports yet"
         self._buffer = b""
         self._process = QProcess(self)
@@ -76,6 +79,10 @@ class EmulatorBridge(QObject):
     @Property(str, notify=changed)
     def virtualTime(self):
         return self._virtual
+
+    @Property(str, notify=changed)
+    def speed(self):
+        return self._speed
 
     @Property(str, notify=changed)
     def report(self):
@@ -133,6 +140,8 @@ class EmulatorBridge(QObject):
         self._colors = {}
         self._pressed = []
         self._status = "Starting original firmware…"
+        self._speed = "—"
+        self._speed_samples.clear()
         self.changed.emit()
         self._process.start(sys.executable, ["-m", "razer_emu_gui.worker"])
         if self._process.waitForStarted(3000):
@@ -164,6 +173,8 @@ class EmulatorBridge(QObject):
             if message["type"] == "error":
                 self._status = message["message"]
                 self._running = False
+                self._speed = "—"
+                self._speed_samples.clear()
             elif message["type"] == "report":
                 self.usbReport.emit(message["endpoint"], message["data"])
             elif message["type"] == "frame":
@@ -171,6 +182,20 @@ class EmulatorBridge(QObject):
                 self._pressed = message["pressed"]
                 self._running = message["running"]
                 self._virtual = f"{message['virtual_us'] / 1_000_000:.3f} s"
+                wall = message.get("wall_seconds")
+                virtual = message["virtual_us"]
+                if not self._running or (
+                    self._speed_samples and virtual < self._speed_samples[-1][1]
+                ):
+                    self._speed_samples.clear()
+                    self._speed = "—"
+                if self._running and wall is not None:
+                    self._speed_samples.append((wall, virtual))
+                    first_wall, first_virtual = self._speed_samples[0]
+                    if wall > first_wall:
+                        self._speed = (
+                            f"{(virtual - first_virtual) / 1_000_000 / (wall - first_wall):.2f}×"
+                        )
                 self._report = message["report"] or "No USB input reports yet"
                 self._status = "Running original firmware" if self._running else "Paused"
             self.changed.emit()
@@ -183,11 +208,15 @@ class EmulatorBridge(QObject):
     def _process_error(self, error):
         self._status = self._process.errorString()
         self._running = False
+        self._speed = "—"
+        self._speed_samples.clear()
         self.changed.emit()
 
     def _finished(self, code, status):
         self._running = False
         self._pressed = []
+        self._speed = "—"
+        self._speed_samples.clear()
         self.changed.emit()
 
 
