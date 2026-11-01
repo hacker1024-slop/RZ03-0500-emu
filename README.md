@@ -26,6 +26,20 @@ The Python bridge is pinned to an upstream Git revision because its current Reno
 
 On NixOS, `nix-shell` provides the system dependencies and environment variables. Create a virtual environment and install this package inside that shell. `shell.nix` uses your configured nixpkgs; it is not a lock file.
 
+### Experimental native backend
+
+The `perf/2x-emulation` branch is investigating a 2× real-time target; that target is not yet verified. Its optional native backend adds guarded cross-page ARM block chaining and inline arithmetic flag operations. It executes the same guest instructions at the same CPU rate. Build it on Linux x86-64 with CMake, Ninja, GCC and `patch`, using the exact Renode 1.17.0 Cores sources identified in [the source manifest](renode/sources.json):
+
+```sh
+python tools/build_renode_native.py --renode "$PYRENODE_PATH"
+PYRENODE_PATH="$PWD/.renode-native/runtime" razer-emu-gui application.bin \
+  --bootloader-dump bootloader-capture --flash-dump settings-capture
+```
+
+The installed Renode stays untouched. The generated runtime is local and ignored by Git. If your Renode distribution omits its source tree, pass `--source /path/to/Emulator/Cores`; source hashes must match the pinned revision. Build metadata includes the native library hash and compiler. All 219 tests pass on this backend. The warmed five-second workload measured 1.26× on the development host, including USB, key press/release and RGB, with matching instruction counts and unchanged firmware. Further optimization is in progress.
+
+The native patches retain their upstream licenses: tlib modifications use LGPL-2.0-or-later, and Renode memory-interface modifications use MIT. The upstream [tlib license](renode/licenses/tlib-LGPL.txt) is included; the project's MIT license covers its own code.
+
 ## Headless execution
 
 ```sh

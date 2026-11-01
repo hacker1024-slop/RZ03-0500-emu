@@ -1,0 +1,25 @@
+{
+  "renode_commit": "ab721d88e135a1bcb8ed2ecc5a38f51cbe61fdd2",
+  "renode_version": "1.17.0",
+  "original_sha256": {
+    "tlib/arch/arm/translate.c": "eff1cbeace560e38345e803ec4be05e44c733c15ce4169c21e06747e4dd64f5c",
+    "tlib/arch/arm/arch_exports.c": "7d850a95e44508cedb803dd19c011312127371ac589b2a65d84f01fe5de4982e",
+    "tlib/include/exec-all.h": "05fc5ecb662beac01034f4d954053145353122dde6960b6da8cc1c5a3a82417c",
+    "tlib/exec.c": "968fae6cd90e102ac90f9efa4949d42040103794d3fae8dc6028044f4224a23b",
+    "tlib/exports.c": "9781a3344de0c602349cad25a515cb58509a1cd1cdf6d3911a5ccf31e0e1019f",
+    "renode/renode_memory.c": "183acc213ae2658bc7b105d2795fa17e669f16858603f1a9c5d35b644799504a"
+  },
+  "patched_sha256": {
+    "tlib/arch/arm/translate.c": "4e9d9bb37d1d3d1624c404cd854f55927590d194a373229c954d71ca068ff695",
+    "tlib/arch/arm/arch_exports.c": "a3c7c199b59a15f5aec74c83abbf42810966dac0a594ee5b4eabacd2327f29c3",
+    "tlib/include/exec-all.h": "e14578f74c33140d2d6761a6a7da1b233961ad36fb2ebde485681eca325c7510",
+    "tlib/exec.c": "5640a3d1d1469a71428021fd1bf39540c7c63cdd7dce6596e8cb89ad208393f6",
+    "tlib/exports.c": "d781c64a622a053b39b0c3f163ee9cd27334cc594599559edc1187c39987c00f",
+    "renode/renode_memory.c": "7cda7387c0079b50b6686c308c5ce01a98d9df9928ae035050e972191805a839"
+  },
+  "patches": [
+    "0001-optimize-arm-translation.patch"
+  ],
+  "source_tree_sha256": "bd3a0059ea10afb06a0d5f6ef753082d52b8ea9188988380ff9cde8d19f569be",
+  "patched_tree_sha256": "e95a52d3c12ecaeb937c49af9497078c2aac5515509584a95085621b1c9485e8"
+}
