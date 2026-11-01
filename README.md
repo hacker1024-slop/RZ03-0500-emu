@@ -99,6 +99,8 @@ python -m pip install -e '.[gui]'
 razer-emu-gui application.bin --flash-dump ./settings-capture
 ```
 
+Add `--usbip 3240` to export the GUI's keyboard to a guest through the loopback USB/IP server described below. Clicking keys then changes the same device imported by the guest. The guest owns USB endpoint polling in this mode; pause and reset are disabled in this mode.
+
 `python -m razer_emu_gui` is equivalent. Add repeated `--flash-dump` arguments for the verified application/settings regions and `--bootloader-dump DIRECTORY` for a complete bootloader capture. The window also has **Captures** and **Open firmware** controls. Original firmware needs its initialized settings; an application file alone may fault. The supplied key/RGB map targets application 1.1.1 with the documented SHA-256 and the ANSI physical layout; other images are rejected rather than assigned a guessed map.
 
 The keyboard background is an actual top-view Razer product photograph, downloaded from Razer's asset server on first launch and cached locally with an integrity check. It is not included in the MIT source or distributions. Use `--background /path/to/photo.png` to supply the aligned 750×420 image offline. Its printed lighting is decorative: the overlaid colour indicators and translucent key highlights show the emulated controller output.

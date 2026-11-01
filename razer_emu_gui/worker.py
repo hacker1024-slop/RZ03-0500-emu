@@ -1,5 +1,6 @@
 """Single-owner emulator process; JSON lines are local GUI IPC, never USB replies."""
 
+import asyncio
 import json
 import queue
 import sys
@@ -16,7 +17,7 @@ def emit(message):
     print(json.dumps(message), flush=True)
 
 
-def run(configuration):
+async def run(configuration):
     layout = load_layout()
     image = Firmware.load(configuration["firmware"])
     if image.sha256 != layout["firmware_sha256"]:
@@ -41,6 +42,12 @@ def run(configuration):
         buttons = keyboard.attach_buttons()
         chips = [keyboard.attach_lighting(c["bus"], c["address"]) for c in layout["controllers"]]
         enumeration = keyboard.usb.enumerate_device()
+        exported = configuration.get("usbip")
+        transport = None
+        if exported:
+            from razer_emu.usbip import UsbIpServer
+
+            transport = asyncio.create_task(UsbIpServer(keyboard, enumeration).serve(port=exported))
         held, releases = {}, {}
         running = True
         report = ""
@@ -64,14 +71,17 @@ def run(configuration):
                 command = commands.get_nowait()
                 kind = command["type"]
                 if kind == "quit":
+                    if transport:
+                        transport.cancel()
+                        await asyncio.gather(transport, return_exceptions=True)
                     return
-                if kind == "reset":
+                if kind == "reset" and not exported:
                     release_all()
                     keyboard.reset()
                     enumeration = keyboard.usb.enumerate_device()
                     report = ""
                     running = True
-                elif kind == "running":
+                elif kind == "running" and not exported:
                     running = bool(command["value"])
                     if not running:
                         release_all()
@@ -90,13 +100,15 @@ def run(configuration):
                         # A short mouse click must still cross firmware debounce in
                         # virtual time, even when emulation runs below real time.
                         releases[index] = max(keyboard.state().elapsed_us, held[index] + 40_000)
+            if transport and transport.done():
+                transport.result()
             if running:
-                state = keyboard.run_for(1000)
+                state = keyboard.state() if exported else keyboard.run_for(1000)
                 if state.stopped_reason:
                     raise RuntimeError(
                         state.stopped_reason + ": " + "; ".join(keyboard.logs()[-5:])
                     )
-                for endpoint, size, interval in enumeration.interrupt_inputs:
+                for endpoint, size, interval in () if exported else enumeration.interrupt_inputs:
                     packet = keyboard.usb.poll_interrupt(endpoint, size, interval_us=interval)
                     if packet is not None:
                         report = f"0x{endpoint:02x}  {packet.hex(' ')}"
@@ -121,11 +133,12 @@ def run(configuration):
                     }
                 )
                 last_frame = now
+            await asyncio.sleep(0.005 if exported else 0)
 
 
 def main():
     try:
-        run(json.loads(sys.stdin.readline()))
+        asyncio.run(run(json.loads(sys.stdin.readline())))
     except Exception as exc:
         emit({"type": "error", "message": str(exc)})
         return 1

@@ -45,6 +45,10 @@ class EmulatorBridge(QObject):
         self._process.errorOccurred.connect(self._process_error)
         self._process.finished.connect(self._finished)
 
+    @Property(bool, constant=True)
+    def usbipMode(self):
+        return bool(self.configuration.get("usbip"))
+
     @Property("QVariantList", constant=True)
     def keys(self):
         return self.layout["keys"]
@@ -192,14 +196,23 @@ def main(argv=None):
     parser.add_argument("firmware", nargs="?")
     parser.add_argument("--flash-dump", action="append", default=[])
     parser.add_argument("--bootloader-dump")
+    parser.add_argument(
+        "--usbip",
+        type=int,
+        metavar="PORT",
+        help="Export USB to a guest instead of consuming reports locally",
+    )
     parser.add_argument("--background", help="Optional aligned 750×420 keyboard image")
     args = parser.parse_args(argv)
+    if args.usbip is not None and not 1 <= args.usbip <= 65535:
+        parser.error("USB/IP port must be between 1 and 65535")
     app = QGuiApplication([sys.argv[0]])
     app.setApplicationName("Razer Keyboard Emulator")
     configuration = {
         "firmware": args.firmware,
         "flash_dumps": args.flash_dump,
         "bootloader": args.bootloader_dump,
+        "usbip": args.usbip,
     }
     try:
         bridge = EmulatorBridge(configuration, args.background)

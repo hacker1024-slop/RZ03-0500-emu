@@ -44,8 +44,8 @@ ApplicationWindow {
             Item { Layout.fillWidth: true }
             ActionButton { text: "Captures"; onClicked: capturesMenu.popup() }
             ActionButton { text: "Open firmware"; onClicked: firmwareDialog.open() }
-            ActionButton { enabled: emulator.running || emulator.status === "Paused"; text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
-            ActionButton { text: "Reset"; onClicked: emulator.reset() }
+            ActionButton { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
+            ActionButton { enabled: !emulator.usbipMode; text: "Reset"; onClicked: emulator.reset() }
         }
         Rectangle {
             Layout.fillWidth: true; Layout.fillHeight: true
