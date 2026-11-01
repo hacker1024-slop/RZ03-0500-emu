@@ -133,7 +133,7 @@ class Keyboard:
         return self._matrix
 
     def attach_matrix(self):
-        """Attach the inferred 8×16 EZH contacts before firmware execution."""
+        """Attach the inferred 8×16 GPIO/EZH contacts before firmware execution."""
         from Antmicro.Renode.Peripherals.Input import RazerDiodeMatrix
         from System import Array, Int32
 
@@ -142,7 +142,12 @@ class Keyboard:
             raise RuntimeError("Attach the matrix before firmware execution")
         if self._matrix is not None:
             raise ValueError("Matrix already configured")
-        backend = RazerDiodeMatrix(self._ezh, Array[Int32](ROW_PINS), Array[Int32](COLUMN_PINS))
+        backend = RazerDiodeMatrix(
+            self._ezh,
+            self._machine.sysbus.gpio.internal,
+            Array[Int32](ROW_PINS),
+            Array[Int32](COLUMN_PINS),
+        )
         self._matrix = Matrix(self, backend)
         return self._matrix
 

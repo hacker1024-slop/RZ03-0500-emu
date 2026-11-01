@@ -133,6 +133,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             base.WriteDoubleWord(offset, value);
             if(offset >= 0 && offset < 256 && offset % 4 == 0)
             {
+                gpio.SetPinFunction((int)(offset / 4), value & 15);
                 var mode = (value >> 4) & 3;
                 if(mode == 1 || mode == 2) gpio.OnGPIO((int)(offset / 4), mode == 2);
             }
@@ -140,7 +141,11 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public override void Reset()
         {
             base.Reset(); values.Clear();
-            for(long i = 0; i < 64; i++) values[i * 4] = 0;
+            for(long i = 0; i < 64; i++)
+            {
+                values[i * 4] = 0;
+                gpio?.SetPinFunction((int)i, 0);
+            }
         }
     }
 }

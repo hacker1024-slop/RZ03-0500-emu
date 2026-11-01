@@ -12,6 +12,8 @@ COLUMN_MASK = sum(1 << pin for pin in COLUMN_PINS)
 
 def _drive(keyboard, output, direction):
     bus, ezh, code = keyboard._bus, keyboard._ezh, 0x20028000
+    for pin in ROW_PINS + COLUMN_PINS:
+        bus.WriteDoubleWord(0x40001000 + pin * 4, 0x12F)
     words = [
         1 | (1 << 18) | (8 << 10) | (13 << 14) | (62 << 24),
         1 | (1 << 18) | (9 << 10) | (13 << 14) | (62 << 24),
@@ -92,6 +94,8 @@ def test_ezh_scanner_accumulates_pressed_columns_into_a_row_mask(cpu_image):
         for column in (0, 7, 15):
             matrix.press(5, column)
         bus, code = keyboard._bus, 0x20028000
+        for pin in ROW_PINS + COLUMN_PINS:
+            bus.WriteDoubleWord(0x40001000 + pin * 4, 0x12F)
         words = [
             1 | (1 << 18) | (8 << 10) | (13 << 14) | (126 << 24),
             1 | (1 << 18) | (9 << 10) | (13 << 14) | (126 << 24),
@@ -110,3 +114,59 @@ def test_ezh_scanner_accumulates_pressed_columns_into_a_row_mask(cpu_image):
         keyboard._ezh.AdvanceCycles(len(words))
         assert keyboard._ezh.GetRegister(0) == 0x8081
         assert keyboard.state().stopped_reason is None
+
+
+def test_cpu_gpio_contacts_cover_pin_aliases_mask_and_release(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        matrix = keyboard.attach_matrix()
+        bus, gpio = keyboard._bus, 0x4008C000
+        row, column = ROW_PINS[2], COLUMN_PINS[5]
+        matrix.press(2, 5)
+        bus.WriteDoubleWord(gpio + 0x2000, ROW_MASK)
+        bus.WriteDoubleWord(gpio + 0x2100, ROW_MASK)
+        assert bus.ReadDoubleWord(gpio + 0x2100) & COLUMN_MASK == COLUMN_MASK
+        bus.WriteByte(gpio + row, 0)
+        expected = COLUMN_MASK & ~(1 << column)
+        assert bus.ReadDoubleWord(gpio + 0x2100) & COLUMN_MASK == expected
+        assert bus.ReadByte(gpio + column) == 0
+        assert bus.ReadDoubleWord(gpio + 0x1000 + 4 * column) == 0
+        assert bus.ReadDoubleWord(gpio + 0x2200) & COLUMN_MASK == expected
+        mask = 1 << COLUMN_PINS[1]
+        bus.WriteDoubleWord(gpio + 0x2080, mask)
+        assert bus.ReadDoubleWord(gpio + 0x2180) & COLUMN_MASK == expected & ~mask
+        # Matrix attachment preserves non-matrix inputs and the other port.
+        keyboard._machine.sysbus.gpio.internal.OnGPIO(20, True)
+        keyboard._machine.sysbus.gpio.internal.OnGPIO(33, True)
+        assert bus.ReadByte(gpio + 20) == 1
+        assert bus.ReadDoubleWord(gpio + 0x2104) == 2
+        matrix.release(2, 5)
+        assert bus.ReadByte(gpio + column) == 1
+        matrix.press(2, 5)
+        bus.WriteDoubleWord(gpio + 0x2000, 0)  # high impedance cannot select a row
+        assert bus.ReadByte(gpio + column) == 1
+        assert keyboard.state().stopped_reason is None
+
+
+def test_iocon_selects_gpio_or_ezh_driver_for_each_matrix_row(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        matrix = keyboard.attach_matrix()
+        bus, gpio, row = keyboard._bus, 0x4008C000, ROW_PINS[4]
+        column = COLUMN_PINS[3]
+        matrix.press(4, 3)
+        # EZH drives this row low; GPIO holds it high.
+        assert _drive(keyboard, ROW_MASK & ~(1 << row), ROW_MASK) & (1 << column) == 0
+        bus.WriteDoubleWord(gpio + 0x2000, ROW_MASK)
+        bus.WriteDoubleWord(gpio + 0x2100, ROW_MASK)
+        assert bus.ReadByte(gpio + column) == 0  # GPIO input sees the physical EZH row
+        bus.WriteDoubleWord(0x40001000 + row * 4, 0x120)
+        assert bus.ReadByte(gpio + column) == 1
+        assert keyboard._ezh.GetRegister(14) & (1 << column)
+        bus.WriteByte(gpio + row, 0)
+        assert keyboard._ezh.GetRegister(14) & (1 << column) == 0
+        bus.WriteDoubleWord(0x40001000 + row * 4, 0x121)  # unmodeled alternate function
+        assert bus.ReadByte(gpio + column) == 1  # neither modeled controller drives it
+        keyboard.reset()
+        assert matrix.pressed == frozenset({(4, 3)})
+        bus.WriteDoubleWord(gpio + 0x2000, 1 << row)
+        bus.WriteByte(gpio + row, 0)
+        assert bus.ReadByte(gpio + column) == 0  # reset returns ownership to GPIO

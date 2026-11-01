@@ -2,15 +2,18 @@
 using System;
 using System.Collections.Generic;
 using Antmicro.Renode.Peripherals.Miscellaneous;
+using Antmicro.Renode.Peripherals.GPIOPort;
 
 namespace Antmicro.Renode.Peripherals.Input
 {
     // Ideal active-low contacts with per-key diodes and pulled-up columns.
-    // Pin indices refer to the EZH's 32-bit digital port, not package numbers.
+    // Firmware tables map the EZH's 32-bit port to GPIO port zero. IOCON
+    // selects which controller drives each row; indices are not package pins.
     public class RazerDiodeMatrix
     {
-        public RazerDiodeMatrix(RazerLpcEzh ezh, int[] rowPins, int[] columnPins)
+        public RazerDiodeMatrix(RazerLpcEzh ezh, RazerLpcGpio gpio, int[] rowPins, int[] columnPins)
         {
+            this.gpio = gpio;
             var used = new HashSet<int>();
             foreach(var pins in new[] {rowPins, columnPins})
             {
@@ -23,7 +26,18 @@ namespace Antmicro.Renode.Peripherals.Input
             rows = (int[])rowPins.Clone(); columns = (int[])columnPins.Clone();
             pressed = new uint[rows.Length];
             foreach(var pin in columns) columnMask |= 1U << pin;
-            ezh.InputPins = ReadPins;
+            matrixMask = columnMask;
+            foreach(var pin in rows) matrixMask |= 1U << pin;
+            ezh.InputPins = (output, direction) =>
+                (ReadPins(output, direction) & ~matrixMask) | ReadSharedPins(output, direction);
+            gpio.InputPins = (output, direction) =>
+                (output & ~matrixMask) | ReadSharedPins(ezh.GetRegister(8), ezh.GetRegister(9));
+        }
+        private uint ReadSharedPins(uint ezhOutput, uint ezhDirection)
+        {
+            var output = (ezhOutput & gpio.EzhFunctionMask) | (gpio.Port0Output & gpio.GpioFunctionMask);
+            var direction = (ezhDirection & gpio.EzhFunctionMask) | (gpio.Port0Direction & gpio.GpioFunctionMask);
+            return ReadPins(output, direction) & matrixMask;
         }
         public void SetKey(int row, int column, bool value)
         {
@@ -47,7 +61,8 @@ namespace Antmicro.Renode.Peripherals.Input
             return (input & ~direction) | (output & direction);
         }
         private readonly int[] rows, columns;
+        private readonly RazerLpcGpio gpio;
         private readonly uint[] pressed;
-        private readonly uint columnMask;
+        private readonly uint columnMask, matrixMask;
     }
 }
