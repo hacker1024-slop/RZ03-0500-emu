@@ -47,6 +47,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         }
         public override void WriteDoubleWord(long offset, uint value)
         {
+            // These registers contain word addresses, not Thumb-tagged pointers.
+            if(offset == 0x20 || offset == 0x30 || offset == 0x34 || offset == 0x38)
+                value &= ~3U;
             if(offset == 0x24)
             {
                 if((value >> 16) != 0xC0DE) return;
@@ -102,6 +105,16 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     {
                         if(ResumeHold()) CompleteInstruction();
                         continue;
+                    }
+                    // AN14650 4.2.12: replace the executed instruction with the
+                    // breakpoint handler. No call/RA update is implied. Branches
+                    // already resolved by CompleteInstruction cannot spuriously
+                    // trigger a breakpoint on a flushed instruction.
+                    if(pc == values[0x30])
+                    {
+                        pc = values[0x34];
+                        branches.Clear();
+                        instructionAddress = pc;
                     }
                     var word = ReadWord(pc);
                     pc += 4;

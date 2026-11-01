@@ -269,6 +269,37 @@ def test_ezh_mailbox_word_addressing_and_register_operations(cpu_image):
         assert keyboard.state().stopped_reason is None
 
 
+def test_ezh_breakpoint_replaces_instruction_without_call(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus, ezh = keyboard._bus, keyboard._ezh
+        code, handler = 0x20028000, 0x20028100
+
+        def load(value):
+            return (1 << 18) | (value << 20)
+
+        bus.WriteDoubleWord(code, load(1))
+        bus.WriteDoubleWord(code + 4, load(2))
+        bus.WriteDoubleWord(handler, load(3))
+        bus.WriteDoubleWord(0x4001D020, code | 1)
+        bus.WriteDoubleWord(0x4001D030, code | 3)
+        bus.WriteDoubleWord(0x4001D034, handler | 1)
+        assert bus.ReadDoubleWord(0x4001D020) == code
+        assert bus.ReadDoubleWord(0x4001D030) == code
+        assert bus.ReadDoubleWord(0x4001D034) == handler
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh.AdvanceCycles(1)
+        assert ezh.GetRegister(0) == 3
+        assert ezh.GetRegister(15) == 0
+        assert ezh.GetRegister(13) == handler + 4
+        # Removing the breakpoint permits the original instruction to execute.
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0010)
+        bus.WriteDoubleWord(0x4001D030, 0)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh.AdvanceCycles(2)
+        assert ezh.GetRegister(0) == 2
+        assert keyboard.state().stopped_reason is None
+
+
 def test_ezh_unknown_opcode_stops_at_its_address(cpu_image):
     with Keyboard(Firmware.load(cpu_image)) as keyboard:
         bus = keyboard._bus
@@ -347,6 +378,9 @@ def test_ezh_scheduled_pc_write_executes_two_delay_slots(cpu_image):
         ]
         bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
         bus.WriteDoubleWord(0x4001D020, code)
+        # A flushed instruction must not enter the breakpoint handler.
+        bus.WriteDoubleWord(0x4001D030, code + 12)
+        bus.WriteDoubleWord(0x4001D034, code + 12)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
         ezh = keyboard._ezh
         ezh.AdvanceCycles(4)

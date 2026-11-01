@@ -35,6 +35,13 @@ Flash captures are external inputs. A fully valid 16-byte capture word is treate
 
 ## EZH backend assessment
 
+The documented breakpoint address/vector registers redirect an executed instruction
+to a handler without updating RA. Clearing the breakpoint permits the original
+instruction to execute. Word-address registers discard their low two bits. Pending
+scheduled branches are discarded on breakpoint entry; resuming a breakpoint inside
+a branch's delay slots is not supported. Synthetic tests cover redirection, removal,
+and a breakpoint on an instruction skipped by a scheduled branch.
+
 [ErichStyger's QEMU fork](https://github.com/ErichStyger/qemu), inspected at revision `6a14bf40bd46fea99dbf240340afb4acd69b924c`, contains an architecture-B target, disassembler and QMP register access. Its decoder currently lists eight instruction patterns. It lacks `E_PER_READ`, shift operations and heartbeat timing used in this firmware's startup, and its standalone MCXN947 board's peripheral reads/writes are placeholders. It is a useful reference and potential future backend, but does not yet replace a complete LPC5528 platform. The target files are LGPL-2.1-or-later; its machine implementation is GPL-2.0-or-later. No fork source has been copied into this repository.
 
 The Renode peripheral interprets an initial instruction subset using its existing bus and virtual timers. It executes the original EZH mailbox setup, stack-pointer load, input-buffer pointer load and GPIO register initialization. Heartbeat/wait synchronization, basic arithmetic, fused pre-shift AND/OR/XOR/ADD/SUB, immediate/register branches, scheduled branches with two delay slots, absolute subroutine calls and tight loops are implemented. Synthetic tests cover synchronization, delayed PC writes, call/return behavior and loop prologue/exclusive-end semantics. Instruction timing and pipeline interactions are functional approximations.
