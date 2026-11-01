@@ -90,7 +90,12 @@ The core splits its execution quanta at event deadlines, including time advanced
 
 ## Core library
 
-The CLI is a thin frontend; execution and inspection live in the reusable core:
+The distribution contains two Python packages:
+
+- `razer_emu`: the reusable core, hardware models, firmware loading, inputs and USB transport.
+- `razer_emu_cli`: argument parsing, command execution and terminal output; it depends on the core.
+
+Run the frontend with `razer-emu` or `python -m razer_emu_cli`. Core imports do not load the CLI. Execution and inspection live in the reusable core:
 
 ```python
 from razer_emu import Firmware

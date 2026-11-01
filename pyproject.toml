@@ -16,7 +16,10 @@ dependencies = ["pyrenode3 @ git+https://github.com/antmicro/pyrenode3.git@27362
 dev = ["pytest>=8", "ruff>=0.9", "build>=1"]
 
 [project.scripts]
-razer-emu = "razer_emu.cli:main"
+razer-emu = "razer_emu_cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["razer_emu", "razer_emu_cli"]
 
 [tool.setuptools.package-data]
 razer_emu = ["platforms/*.repl", "platforms/*.cs"]

@@ -5,9 +5,9 @@ import asyncio
 import json
 import sys
 
-from .firmware import Bootloader, Firmware, FlashRegion
-from .inputs import InputScript
-from .usb import UsbError
+from razer_emu.firmware import Bootloader, Firmware, FlashRegion
+from razer_emu.inputs import InputScript
+from razer_emu.usb import UsbError
 
 
 def _lighting_address(value):
@@ -71,7 +71,7 @@ def main(argv=None):
             raise ValueError("--microseconds must be from 1 to 10,000,000")
         if args.usbip is None and script and script.duration_us > args.microseconds:
             raise ValueError("The input script extends beyond --microseconds")
-        from .core import Keyboard
+        from razer_emu.core import Keyboard
 
         image = Firmware.load(args.firmware)
         with Keyboard(
@@ -82,7 +82,7 @@ def main(argv=None):
             playback = keyboard.prepare_input_script(script) if script else None
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
             if args.usbip is not None:
-                from .usbip import UsbIpServer
+                from razer_emu.usbip import UsbIpServer
 
                 enumeration = keyboard.usb.enumerate_device()
                 if playback:
