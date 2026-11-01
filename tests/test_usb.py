@@ -321,7 +321,8 @@ def test_interrupt_in_stall_disconnect_and_bus_reset_timing(usb_board):
         keyboard.usb.read_interrupt(0x81, 8)
 
 
-def test_interrupt_in_rejects_invalid_endpoint_size_and_interval(usb_board):
+@pytest.mark.parametrize("method", ["read_interrupt", "poll_interrupt"])
+def test_interrupt_in_rejects_invalid_endpoint_size_and_interval(usb_board, method):
     keyboard, _, _ = usb_board
     for endpoint, size, interval in (
         (0x01, 8, 125),
@@ -335,4 +336,34 @@ def test_interrupt_in_rejects_invalid_endpoint_size_and_interval(usb_board):
         (0x81, 8, True),
     ):
         with pytest.raises(ValueError):
-            keyboard.usb.read_interrupt(endpoint, size, interval_us=interval)
+            getattr(keyboard.usb, method)(endpoint, size, interval_us=interval)
+
+
+def test_nonblocking_interrupt_poll_shares_slots_without_advancing_time(usb_board):
+    keyboard, bus, _ = usb_board
+    assert keyboard.usb.poll_interrupt(0x81, 8) is None
+    assert keyboard.state().elapsed_us == 0
+    _arm(bus, 3, BUFFER, 0, flags=0x8C000000)
+    assert keyboard.usb.poll_interrupt(0x81, 8) is None
+    assert bus.ReadDoubleWord(TABLE + 24) & 0x80000000
+    keyboard.run_for(125)
+    assert keyboard.usb.poll_interrupt(0x81, 8) == b""
+    assert keyboard.state().elapsed_us == 125
+    bus.WriteBytes(_array(b"abc"), BUFFER)
+    _arm(bus, 3, BUFFER, 3, flags=0x8C000000)
+    assert keyboard.usb.read_interrupt(0x81, 8) == b"abc"
+    assert keyboard.state().elapsed_us == 250
+    assert keyboard.usb.poll_interrupt(0x81, 8) is None
+
+
+def test_nonblocking_interrupt_poll_preserves_stall_and_disconnect(usb_board):
+    from razer_emu import UsbError, UsbStall
+
+    keyboard, bus, _ = usb_board
+    _arm(bus, 3, BUFFER, 1, flags=0xA0000000)
+    with pytest.raises(UsbStall, match="0x81"):
+        keyboard.usb.poll_interrupt(0x81, 8)
+    assert keyboard.state().elapsed_us == 0
+    keyboard.usb.disconnect()
+    with pytest.raises(UsbError, match="disconnected"):
+        keyboard.usb.poll_interrupt(0x81, 8)

@@ -191,28 +191,50 @@ class UsbHost:
         returned unchanged. Completion IRQ service occurs when virtual time next
         advances. Endpoint polling cadence persists across calls.
         """
+        self._validate_interrupt(endpoint, maximum_packet_size, interval_us)
+        deadline = self._deadline(timeout_us)
+        while True:
+            packet = self.poll_interrupt(endpoint, maximum_packet_size, interval_us=interval_us)
+            if packet is not None:
+                return packet
+            now = self._check().elapsed_us
+            due = self._interrupt_due[endpoint]
+            self._advance(min(due, deadline), due - now)
+            if self._check().elapsed_us < due:
+                raise UsbTimeout("Next interrupt poll falls outside the virtual-time budget")
+
+    def poll_interrupt(self, endpoint, maximum_packet_size, *, interval_us=125):
+        """Attempt one interrupt IN transaction without advancing virtual time.
+
+        Return None on NAK or before the endpoint's next polling slot; return
+        bytes on ACK, including b'' for a zero-length packet. The caller advances
+        virtual time and services completion interrupts with Keyboard.run_for().
+        Poll slots are shared with read_interrupt(). STALL and emulator errors
+        raise the same exceptions as blocking transfers.
+        """
+        self._validate_interrupt(endpoint, maximum_packet_size, interval_us)
+        now = self._check().elapsed_us
+        if not self._backend.Connected:
+            raise UsbError("Virtual USB device is disconnected")
+        if now < self._interrupt_due.get(endpoint, now):
+            return None
+        self._interrupt_due[endpoint] = now + interval_us
+        result = self._backend.HostIn(endpoint & 15, maximum_packet_size)
+        handshake = str(result.Handshake)
+        if handshake == "Ack":
+            return bytes(result.Data)
+        if handshake == "Stall":
+            raise UsbStall(f"Firmware stalled endpoint 0x{endpoint:02x}")
+        return None
+
+    @staticmethod
+    def _validate_interrupt(endpoint, maximum_packet_size, interval_us):
         if type(endpoint) is not int or not 0x81 <= endpoint <= 0x85:
             raise ValueError("Interrupt endpoint must be an IN address from 0x81 to 0x85")
         if type(maximum_packet_size) is not int or not 1 <= maximum_packet_size <= 1024:
             raise ValueError("Maximum packet size must be 1 to 1024 bytes")
         if type(interval_us) is not int or not 1 <= interval_us <= 10_000_000:
             raise ValueError("Polling interval must be 1 to 10,000,000 virtual microseconds")
-        deadline = self._deadline(timeout_us)
-
-        def poll():
-            now = self._check().elapsed_us
-            due = self._interrupt_due.get(endpoint, now)
-            if due > now:
-                self._advance(min(due, deadline), due - now)
-                now = self._check().elapsed_us
-                if now < due:
-                    raise UsbTimeout("Next interrupt poll falls outside the virtual-time budget")
-            self._interrupt_due[endpoint] = now + interval_us
-            return self._backend.HostIn(endpoint & 15, maximum_packet_size)
-
-        return self._packet(
-            poll, deadline, read=True, endpoint=endpoint, poll_interval_us=interval_us
-        )
 
     @staticmethod
     def _array(data):
