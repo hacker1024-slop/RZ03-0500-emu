@@ -29,7 +29,7 @@ namespace Antmicro.Renode.Peripherals.Input
             matrixMask = columnMask;
             foreach(var pin in rows) matrixMask |= 1U << pin;
             ezh.InputPins = (output, direction) =>
-                (ReadPins(output, direction) & ~matrixMask) | ReadSharedPins(output, direction);
+                (output & direction & ~matrixMask) | ReadSharedPins(output, direction);
             gpio.InputPins = (output, direction) =>
                 (output & ~matrixMask) | ReadSharedPins(ezh.GetRegister(8), ezh.GetRegister(9));
         }
@@ -46,12 +46,15 @@ namespace Antmicro.Renode.Peripherals.Input
             var bit = 1U << columns[column];
             if(value) pressed[row] |= bit;
             else pressed[row] &= ~bit;
+            var rowBit = 1U << row;
+            activeRows = pressed[row] == 0 ? activeRows & ~rowBit : activeRows | rowBit;
         }
         public uint ReadPins(uint output, uint direction)
         {
             // Non-matrix input pins default low. Output pins read back their
             // driven value; only input columns receive the pull-up/contact state.
             var input = columnMask;
+            if(activeRows == 0) return (input & ~direction) | (output & direction);
             for(var row = 0; row < rows.Length; row++)
             {
                 var rowBit = 1U << rows[row];
@@ -63,6 +66,7 @@ namespace Antmicro.Renode.Peripherals.Input
         private readonly int[] rows, columns;
         private readonly RazerLpcGpio gpio;
         private readonly uint[] pressed;
+        private volatile uint activeRows;
         private readonly uint columnMask, matrixMask;
     }
 }
