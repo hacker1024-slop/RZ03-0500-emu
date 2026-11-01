@@ -1,0 +1,61 @@
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m33"
+    nvic: nvic
+nvic: IRQControllers.NVIC @ sysbus 0xe000e000
+    -> cpu@0
+    systickFrequency: 96000000
+sram: Memory.MappedMemory @ sysbus 0x20000000
+    size: 0x30000
+sramx: Memory.MappedMemory @ sysbus 0x04000000
+    size: 0x8000
+flash: Memory.MappedMemory @ sysbus 0x00000000
+    size: 0x80000
+syscon: Miscellaneous.RazerLpcSyscon @ {
+        sysbus 0x40000000;
+        sysbus 0x50000000
+    }
+pmc: Miscellaneous.RazerLpcPmc @ {
+        sysbus 0x40020000;
+        sysbus 0x50020000
+    }
+anactrl: Miscellaneous.RazerLpcAnalog @ {
+        sysbus 0x40013000;
+        sysbus 0x50013000
+    }
+// NMPA factory trim fields. Zero marks unavailable trim, selecting SDK defaults.
+// This is a virtual untrimmed device, not a copy of the specimen's factory data.
+nmpa: Memory.MappedMemory @ sysbus 0x0009fc00
+    size: 0x400
+flashController: Miscellaneous.RazerLpcFlashController @ {
+        sysbus 0x40034000;
+        sysbus 0x50034000
+    }
+iocon: Miscellaneous.RazerLpcIocon @ {
+        sysbus 0x40001000;
+        sysbus 0x50001000
+    }
+    gpio: gpio
+gpio: GPIOPort.RazerLpcGpio @ {
+        sysbus 0x4008c000;
+        sysbus 0x5008c000
+    }
+ctimer2: Timers.RazerLpcTimer @ {
+        sysbus 0x40028000;
+        sysbus 0x50028000
+    }
+    frequency: 96000000
+    IRQ -> nvic@36
+dma0: DMA.RazerLpcDma @ {
+        sysbus 0x40082000;
+        sysbus 0x50082000
+    }
+flexcomm4: I2C.RazerLpcI2c @ {
+        sysbus 0x4008a000;
+        sysbus 0x5008a000
+    }
+    IRQ -> nvic@18
+flexcomm2: I2C.RazerLpcI2c @ {
+        sysbus 0x40088000;
+        sysbus 0x50088000
+    }
+    IRQ -> nvic@16
