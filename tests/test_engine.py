@@ -55,6 +55,29 @@ def test_pmc_always_on_storage_survives_mcu_reset_but_not_new_board(cpu_image):
         assert keyboard._bus.ReadDoubleWord(address) == 0
 
 
+@pytest.mark.parametrize("pin", [20, 32, 60])
+def test_external_gpio_input_overrides_pulls_and_survives_mcu_reset(cpu_image, pin):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        gpio, bus = keyboard._machine.sysbus.gpio.internal, keyboard._bus
+        iocon, alias = 0x40001000 + pin * 4, 0x4008C000 + pin
+        bus.WriteDoubleWord(iocon, 0x120)
+        assert bus.ReadByte(alias) == 1
+        gpio.OnGPIO(pin, False)
+        bus.WriteDoubleWord(iocon, 0x120)
+        assert bus.ReadByte(alias) == 0  # weak pull-up cannot overwrite external low
+        gpio.OnGPIO(pin, True)
+        bus.WriteDoubleWord(iocon, 0x110)
+        assert bus.ReadByte(alias) == 1  # weak pull-down cannot overwrite external high
+        keyboard.reset()
+        assert bus.ReadByte(alias) == 1
+        bus.WriteDoubleWord(iocon, 0x110)
+        gpio.ReleaseInput(pin)
+        assert bus.ReadByte(alias) == 0
+        bus.WriteDoubleWord(iocon, 0x120)
+        assert bus.ReadByte(alias) == 1
+        assert keyboard.state().stopped_reason is None
+
+
 def test_original_application_needs_initialized_nvram(cpu_image):
     path = os.environ.get("RAZER_TEST_FIRMWARE")
     if not path:

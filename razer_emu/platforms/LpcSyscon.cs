@@ -139,7 +139,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 gpio.SetPinFunction((int)(offset / 4), value & 15);
                 var mode = (value >> 4) & 3;
-                if(mode == 1 || mode == 2) gpio.OnGPIO((int)(offset / 4), mode == 2);
+                if(mode == 1 || mode == 2) gpio.SetInputPull((int)(offset / 4), mode == 2);
             }
         }
         public override void Reset()

@@ -15,6 +15,35 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
         {
             base.Reset(); UnsupportedReads = UnsupportedWrites = 0;
             GpioFunctionMask = uint.MaxValue; EzhFunctionMask = 0;
+            pullUps = 0;
+            for(var pin = 0; pin < 64; pin++)
+                if((externalMask & (1UL << pin)) != 0)
+                    base.OnGPIO(pin, (externalValues & (1UL << pin)) != 0);
+        }
+        public override void OnGPIO(int number, bool value)
+        {
+            CheckInput(number);
+            var bit = 1UL << number;
+            externalMask |= bit;
+            externalValues = value ? externalValues | bit : externalValues & ~bit;
+            base.OnGPIO(number, value);
+        }
+        public void ReleaseInput(int number)
+        {
+            CheckInput(number);
+            externalMask &= ~(1UL << number);
+            base.OnGPIO(number, (pullUps & (1UL << number)) != 0);
+        }
+        public void SetInputPull(int number, bool high)
+        {
+            CheckInput(number);
+            var bit = 1UL << number;
+            pullUps = high ? pullUps | bit : pullUps & ~bit;
+            if((externalMask & bit) == 0) base.OnGPIO(number, high);
+        }
+        private static void CheckInput(int number)
+        {
+            if(number < 0 || number >= 64) throw new ArgumentOutOfRangeException(nameof(number));
         }
         public Func<uint, uint, uint> InputPins { get; set; }
         public uint GpioFunctionMask { get; private set; }
@@ -63,5 +92,6 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
         private bool WordRegister(long offset) => offset >= 0x2000 && offset <= 0x2304 && (offset % 0x80 == 0 || offset % 0x80 == 4);
         public ulong UnsupportedReads { get; private set; }
         public ulong UnsupportedWrites { get; private set; }
+        private ulong externalMask, externalValues, pullUps;
     }
 }
