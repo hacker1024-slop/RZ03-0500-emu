@@ -713,3 +713,71 @@ def test_usb_vbus_change_interrupt_and_read_only_attachment_status(cpu_image):
         assert bus.ReadDoubleWord(base) & 0x10000000 == 0
         assert bus.ReadDoubleWord(base + 0x10) & 0x100000 == 0
         assert keyboard.state().stopped_reason is None
+
+
+@pytest.mark.parametrize(
+    "operation,expected", [(0, 12), (1, 4), (2, 29), (3, 25), (4, 33), (5, 0xFFFFFFF7)]
+)
+def test_ezh_fused_shift_uses_shifted_value_as_left_operand(cpu_image, operation, expected):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        code = 0x20028000
+        words = [
+            (1 << 18) | (1 << 10) | (21 << 20),  # R1 = 21
+            (1 << 18) | (2 << 10) | (3 << 20),  # R2 = 3
+            0x10 | (1 << 14) | (2 << 20) | (2 << 24) | (operation << 29) | 512,
+            # Copy on AZ to observe flags from the fused result.
+            (1 << 18) | (3 << 10) | (7 << 20) | (1 << 5),
+        ]
+        for index, word in enumerate(words):
+            bus.WriteDoubleWord(code + index * 4, word)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        keyboard._ezh.AdvanceCycles(len(words))
+        assert keyboard._ezh.GetRegister(0) == expected
+        assert keyboard._ezh.GetRegister(3) == 0
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_conditional_shift_or_accumulates_active_low_scan_bits(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        code = 0x20028000
+        words = [
+            (1 << 18) | (5 << 10) | (1 << 20),  # R5 = one-bit mask
+            # Test a low input: AZ is true, so accumulate shifted R5 into R0.
+            0x18 | (2 << 10) | (2 << 14) | (5 << 29) | 512,
+            0x41500030,  # scanner's conditional LSL_OR(AZ, R0, R0, R5, 1)
+            (1 << 18) | (2 << 10) | (1 << 20),
+            # A high input clears AZ, suppressing the next whole instruction.
+            0x18 | (2 << 10) | (2 << 14) | (5 << 29) | 512,
+            0x42500030,
+        ]
+        for index, word in enumerate(words):
+            bus.WriteDoubleWord(code + index * 4, word)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        keyboard._ezh.AdvanceCycles(len(words))
+        assert keyboard._ezh.GetRegister(0) == 2
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_fused_add_sets_arithmetic_carry_and_zero_flags(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        code = 0x20028000
+        words = [
+            (1 << 18) | (1 << 10) | (2 << 20),  # R1 = 2
+            (1 << 18) | (2 << 10) | (0x7FF << 20),  # R2 = -1
+            0x10 | (1 << 14) | (2 << 20) | (1 << 24) | (4 << 29) | 512,
+            # (0xFFFFFFFF << 1) + 2 = zero, with arithmetic carry.
+            (1 << 18) | (3 << 10) | (7 << 20) | (9 << 5),  # ACZ
+        ]
+        for index, word in enumerate(words):
+            bus.WriteDoubleWord(code + index * 4, word)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        keyboard._ezh.AdvanceCycles(len(words))
+        assert keyboard._ezh.GetRegister(0) == 0
+        assert keyboard._ezh.GetRegister(3) == 7
+        assert keyboard.state().stopped_reason is None

@@ -223,22 +223,25 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                         else WriteByte(access, (byte)ReadRegister(second));
                         if(writeback && source != 13 && !(opcode == 1 && source == destination)) WriteRegister(source, address, false);
                         break;
-                    case 0x10: // immediate shift; fused ALU forms need further implementation
-                        if((word >> 29) != 0) { Fail(instructionAddress, word); continue; }
-                        value = ReadRegister(second);
-                        if(flags && shift != 0)
+                    case 0x10: // shift first, then optional ALU with SRC1
+                        var fused = word >> 29;
+                        if(fused >= 6) { Fail(instructionAddress, word); continue; }
+                        var shiftedCarry = carry;
+                        value = Shift(ReadRegister(second), (int)((word >> 18) & 3), shift, ref shiftedCarry);
+                        var operand = ReadRegister(source);
+                        switch(fused)
                         {
-                            var kind = (word >> 18) & 3;
-                            carry = kind == 0 ? ((value >> (32 - shift)) & 1) != 0 :
-                                ((value >> (shift - 1)) & 1) != 0;
+                        case 1: value &= operand; break;
+                        case 2: value |= operand; break;
+                        case 3: value ^= operand; break;
+                        case 4:
+                            var shiftedSum = (ulong)value + operand;
+                            value = (uint)shiftedSum; shiftedCarry = shiftedSum > uint.MaxValue; break;
+                        case 5:
+                            shiftedCarry = value >= operand;
+                            value = unchecked(value - operand); break;
                         }
-                        switch((word >> 18) & 3)
-                        {
-                        case 0: value <<= shift; break;
-                        case 1: value = unchecked((uint)((int)value >> shift)); break;
-                        case 2: value >>= shift; break;
-                        case 3: if(shift != 0) value = (value >> shift) | (value << (32 - shift)); break;
-                        }
+                        if(flags && destination != 13) carry = shiftedCarry;
                         WriteRegister(destination, value, flags); break;
                     case 0x18:
                         var bit = 1U << ((word & (1 << 18)) != 0 ? (int)(ReadRegister(second) & 31) : shift);
