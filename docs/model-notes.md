@@ -1,6 +1,6 @@
 # Hardware model evidence and assumptions
 
-Working target: BlackWidow V4 75%, USB 1532:02A5, application 1.1.1; MCU LPC5528JBD100 identified at model level by a published teardown. Pin assignments and the external LED controller remain to be established.
+Working target: BlackWidow V4 75%, USB 1532:02A5, application 1.1.1; MCU LPC5528JBD100 is legible in the supplied teardown close-up. A main-board lighting package is marked RAZER CHROMA 192. Pin assignments, populated lighting addresses and the underlying lighting part remain to be established.
 
 Primary register-layout reference: [NXP LPC5528 header](https://github.com/nxp-mcuxpresso/mcux-sdk/blob/main/devices/LPC5528/LPC5528.h). NXP's [power driver](https://github.com/nxp-mcuxpresso/mcux-sdk/blob/main/devices/LPC5528/drivers/fsl_power.c) identifies the NMPA factory power-profile addresses and fallback constants. Code addresses below refer to the captured 1.1.1 application, loaded at `0x20000000`.
 
@@ -74,3 +74,14 @@ DMA default request-channel assignments are cross-checked against NXP's [LPC5528
 The immediate-shift family now includes the scanner's conditional shift-and-OR bit accumulation. The shift runs before the fused ALU operation; subtraction uses the shifted value as its left operand. Flag-setting ADD/SUB uses arithmetic carry, while logical forms preserve the shift carry. Conditional false instructions skip the whole operation. ADC/SBC fusion and SPO/SNE algorithmic conditions remain explicitly unsupported. This removes a later scanner-path limitation, but does not resolve startup control flow.
 
 A private-image host-attached run to 558 ms still leaves EZH at 0x200010AC with 43 completed instructions. The NOP at 0x200010A0 and following pointer-shaped words match in the installed dump and extracted updater image. A bus write trace through the first 20 ms observes only the expected EZH control/mailbox/boot writes, with no CPU write replacing that NOP or programming breakpoint vectors. Startup relocation or another missing execution detail remains under investigation. These observations do not justify changing the NOP or skipping the following data-like words.
+
+
+## Application handoff and lighting evidence
+
+The readable captured bootloader routine at 0x62FC copies the application from flash 0x8000 into RAM 0x20000000 using the length in the header at 0x7800, sets PSP/VTOR and branches to the application reset vector. A private probe executes this routine against an executable Renode ROM mapping and observes an exact application-image match at the branch target, including the NOP at 0x200010A0. This copy routine does not repair that instruction. The probe does not reconstruct the missing bootloader vectors or claim complete cold boot. The production ECC flash peripheral is CPU-readable MMIO, not an executable ROM mapping; direct flash execution stalled the private probe. The executable diagnostic mapping is not enabled in the core.
+
+Supplied teardown photographs directly identify the NXP MCU and a RAZER CHROMA 192 main-board lighting package. They also show a separate media board and another unidentified controller-board IC. No photograph establishes a connector pinout or an original manufacturer part number for the lighting package.
+
+The original application attempts Flexcomm4 addresses 0x50/0x5F/0x53 and Flexcomm2 address 0x5C. A diagnostic register target at 0x50 allows capture of its intended writes: FE=C5 unlock, FD=03 function page, 00=01, 01=FF, 0F=07, 10=07, followed by page-1 PWM data (192 bytes) and page-0 enable data (24 bytes). This matches the [IS31FL3733 register layout](https://www.lumissil.com/assets/pdf/core/IS31FL3733_DS.pdf) and supports a compatible lighting model as the next implementation target. It does not identify the exact branded silicon or populate guessed devices in the production platform. A generic register target is not a working LED driver model.
+
+Private experiments connecting the EZH common interrupt to NVIC30, driving the inferred column inputs plus P0_20/P1_0 high, and combining those changes all leave the same HOLD checkpoint after USB configuration and 200 ms of execution. They are not sufficient evidence to commit those wiring assumptions. A startup write trace covering byte, halfword and word accesses also finds no write replacing the NOP during the first 20 ms.
