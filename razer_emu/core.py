@@ -43,6 +43,8 @@ class Keyboard:
         "flashController",
         "iocon",
         "ctimer2",
+        "ctimer3",
+        "usbPort",
         "dma0",
         "flexcomm4",
         "flexcomm2",

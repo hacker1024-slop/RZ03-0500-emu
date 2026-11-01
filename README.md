@@ -64,9 +64,9 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 - Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM backing, the memory bus, GPIO register behavior and the virtual clock infrastructure.
 - The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. The incomplete bootloader capture is not executed.
-- Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA configuration, Flexcomm I²C master bring-up, watchdog feeding/countdown, and EZH control registers. EZH executes its initial mailbox/stack/GPIO instruction subset; heartbeat synchronization and subsequent instructions remain incomplete.
+- Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA configuration, Flexcomm I²C master bring-up, watchdog feeding/countdown, and EZH control registers. EZH supports initial mailbox/stack/GPIO operations, heartbeat synchronization, basic arithmetic and branches/calls. Interrupts, Boolean detection and much of its instruction set remain incomplete.
 - Unknown bus accesses and unsupported operations in these models are checked every 10 virtual microseconds. Several accesses can occur within that interval before execution stops.
-- Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2 source are 96 MHz. Clock gating, analog behavior, resets, DMA data movement and pin electrical behavior are incomplete.
+- Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2/3 sources are 96 MHz. Clock gating, analog behavior, resets, DMA data movement and pin electrical behavior are incomplete.
 - Unloaded flash has invalid ECC; controller reads report ECC errors and CPU reads fault. No specimen settings or bootloader are fabricated. Factory trim defaults and undocumented register assumptions are described in [model notes](docs/model-notes.md). These are not a recovered copy of a particular keyboard's factory data or persistent settings.
 
 ## Tests

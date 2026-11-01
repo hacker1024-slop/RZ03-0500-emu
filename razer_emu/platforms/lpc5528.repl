@@ -67,3 +67,13 @@ ezh: Miscellaneous.RazerLpcEzh @ {
         sysbus 0x4001d000;
         sysbus 0x5001d000
     }
+ctimer3: Timers.RazerLpcTimer @ {
+        sysbus 0x40029000;
+        sysbus 0x50029000
+    }
+    frequency: 96000000
+    IRQ -> nvic@13
+usbPort: Miscellaneous.RazerLpcUsbPort @ {
+        sysbus 0x400a3000;
+        sysbus 0x500a3000
+    }

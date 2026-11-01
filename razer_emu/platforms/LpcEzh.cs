@@ -17,7 +17,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             this.machine = machine;
             clock = new LimitTimer(machine.ClockSource, 96000000, this, "ezh", limit: 96,
                 eventEnabled: true, workMode: WorkMode.Periodic);
-            clock.LimitReached += () => StepInstructions(96);
+            clock.LimitReached += () => AdvanceCycles(96);
         }
         public override void Reset()
         {
@@ -25,7 +25,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             for(long offset = 0x20; offset <= 0x48; offset += 4) values[offset] = 0;
             Array.Clear(registers, 0, registers.Length);
             Instructions = 0; Running = false; clock?.Reset();
-            pc = 0; result = 0; carry = false;
+            pc = 0; flagsMask = 0; carry = false; Cycles = 0;
+            heartbeatPeriod = heartbeatLeft = 0; waitForBeat = syncToBeat = false;
+            branchDelay = 0; branchTarget = 0;
         }
         public override uint ReadDoubleWord(long offset)
         {
@@ -54,18 +56,35 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         }
         public ulong Instructions { get; private set; }
         public bool Running { get; private set; }
-        public void StepInstructions(int count)
+        public ulong Cycles { get; private set; }
+        public void AdvanceCycles(int count)
         {
             if(count < 1 || count > 4096) throw new ArgumentOutOfRangeException(nameof(count));
             for(var i = 0; i < count && Running; i++)
             {
+                Cycles++;
+                var beat = heartbeatPeriod == 0 || --heartbeatLeft == 0;
+                if(beat) heartbeatLeft = heartbeatPeriod;
+                if((waitForBeat || syncToBeat) && !beat) continue;
+                waitForBeat = false;
                 var instructionAddress = pc;
                 var word = machine.SystemBus.ReadDoubleWord(pc);
                 pc += 4;
+                // GOSUB uses the entire word as its address. Decode its two-bit
+                // tag before interpreting the overlapping opcode/condition fields.
+                if((word & 3) == 3)
+                {
+                    registers[15] = pc;
+                    WriteRegister(13, word & ~3U, false);
+                    CompleteInstruction();
+                    continue;
+                }
                 var opcode = word & 31;
                 var condition = (int)((word >> 5) & 15);
+                if((condition == 10 || condition == 11) && opcode != 0x15)
+                { Fail(instructionAddress, word); break; }
+                if(opcode != 0x12 && !Condition(condition)) { CompleteInstruction(); continue; }
                 if(!Implemented(opcode)) { Fail(instructionAddress, word); break; }
-                if(opcode != 0x12 && !Condition(condition)) { Instructions++; continue; }
                 var destination = (int)((word >> 10) & 15);
                 var source = (int)((word >> 14) & 15);
                 var second = (int)((word >> 20) & 15);
@@ -74,8 +93,48 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 uint value;
                 switch(opcode)
                 {
-                case 0x12: // no-op; heartbeat/timing forms remain unsupported
-                    if(word != 0x12) { Fail(instructionAddress, word); continue; }
+                case 0x12:
+                    switch(condition)
+                    {
+                    case 0: break; // NOP
+                    case 1:
+                        heartbeatPeriod = (word & 512) == 0 ? word >> 16 : ReadRegister(source) & 0xFFFF;
+                        heartbeatLeft = heartbeatPeriod;
+                        break;
+                    case 2: syncToBeat = (word & 0x80000000) != 0; break;
+                    case 3: waitForBeat = true; break;
+                    default: Fail(instructionAddress, word); continue;
+                    }
+                    break;
+                case 6: case 8: case 12: case 13: case 14:
+                    var immediate = (word & (1 << 18)) != 0;
+                    var left = ReadRegister(source);
+                    var right = immediate ? unchecked((uint)SignExtend(word >> 20, 12)) : ReadRegister(second);
+                    var nextCarry = carry;
+                    switch(opcode)
+                    {
+                    case 6:
+                        var sum = (ulong)left + right;
+                        value = (uint)sum; nextCarry = sum > uint.MaxValue; break;
+                    case 8: value = unchecked(left - right); nextCarry = left >= right; break;
+                    case 12: value = left | right; break;
+                    case 13: value = left & right; break;
+                    default: value = left ^ right; break;
+                    }
+                    if((word & (1 << 19)) != 0) value = ~value;
+                    if(!immediate)
+                    {
+                        if((word & 0x80000000) != 0)
+                            value = (value >> 24) | ((value >> 8) & 0xFF00) | ((value << 8) & 0xFF0000) | (value << 24);
+                        value = Shift(value, (int)((word >> 29) & 3), shift, ref nextCarry);
+                    }
+                    if(flags && destination != 13) carry = nextCarry;
+                    WriteRegister(destination, value, flags); break;
+                case 0x15:
+                    var target = (word & 512) != 0 ? (pc & 0xFF800000) | ((word >> 9) & 0x7FFFFC) : ReadRegister(source);
+                    var scheduled = condition == 10 || condition == 11;
+                    if((word & 1024) != 0) registers[15] = instructionAddress + (scheduled ? 12U : 4U);
+                    WriteRegister(13, target, scheduled);
                     break;
                 case 0: // register move or signed immediate shifted left
                     value = (word & (1 << 18)) == 0 ? ReadRegister(source) :
@@ -136,40 +195,59 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     }
                     WriteRegister(destination, value, flags); break;
                 }
-                Instructions++;
+                if(Running) CompleteInstruction();
             }
         }
+        private void CompleteInstruction()
+        {
+            Instructions++;
+            if(branchDelay > 0 && --branchDelay == 0) pc = branchTarget;
+        }
         private bool Implemented(uint opcode) => opcode == 0 || opcode == 1 || opcode == 2 ||
-            opcode == 4 || opcode == 5 || opcode == 0x10 || opcode == 0x12 || opcode == 0x18;
+            opcode == 4 || opcode == 5 || opcode == 6 || opcode == 8 || opcode == 12 || opcode == 13 ||
+            opcode == 14 || opcode == 0x10 || opcode == 0x12 || opcode == 0x15 || opcode == 0x18;
         private uint ReadRegister(int register) => register == 13 ? pc + 4 : registers[register];
         private void WriteRegister(int register, uint value, bool flags)
         {
             if(register == 13)
             {
-                // Scheduled branches must be modeled before accepting their S form.
-                if(flags) { Fail(pc - 4, machine.SystemBus.ReadDoubleWord(pc - 4)); return; }
-                pc = value & ~3U;
+                if(flags) { branchTarget = value & ~3U; branchDelay = 3; }
+                else { pc = value & ~3U; branchDelay = 0; }
             }
-            else if(register != 14) registers[register] = value;
-            if(flags) result = value;
+            else
+            {
+                if(register != 14) registers[register] = value;
+                if(flags)
+                {
+                    flagsMask = (ushort)((value == 0 ? 1 << 1 : 1 << 2) |
+                        ((int)value >= 0 ? 1 << 3 : 1 << 4) |
+                        ((int)value > 0 ? 1 << 5 : 1 << 6) |
+                        (carry ? 1 << 7 : 1 << 8) | (carry && value == 0 ? 1 << 9 : 0));
+                }
+            }
         }
         private bool Condition(int condition)
         {
+            if(condition >= 1 && condition <= 9) return (flagsMask & (1 << condition)) != 0;
             switch(condition)
             {
-            case 0: return true;
-            case 1: return result == 0;
-            case 2: return result != 0;
-            case 3: return (int)result >= 0;
-            case 4: return (int)result < 0;
-            case 5: return (int)result > 0;
-            case 6: return (int)result <= 0;
-            case 7: return carry;
-            case 8: return !carry;
-            case 9: return carry && result == 0;
+            case 0: case 10: return true;
+            case 11: return (flagsMask & (1 << 2)) != 0;
             case 13: return (values[0x24] & 2) == 0;
             case 15: return (values[0x24] & 2) != 0;
             default: Fail(pc - 4, machine.SystemBus.ReadDoubleWord(pc - 4)); return false;
+            }
+        }
+        private static uint Shift(uint value, int kind, int amount, ref bool carryOut)
+        {
+            if(amount == 0) return value;
+            carryOut = kind == 0 ? ((value >> (32 - amount)) & 1) != 0 : ((value >> (amount - 1)) & 1) != 0;
+            switch(kind)
+            {
+            case 0: return value << amount;
+            case 1: return unchecked((uint)((int)value >> amount));
+            case 2: return value >> amount;
+            default: return (value >> amount) | (value << (32 - amount));
             }
         }
         private static int SignExtend(uint value, int width) => (int)(value << (32 - width)) >> (32 - width);
@@ -182,7 +260,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly IMachine machine;
         private readonly LimitTimer clock;
         private readonly uint[] registers = new uint[16];
-        private uint pc, result;
+        private uint pc, branchTarget, heartbeatPeriod, heartbeatLeft;
+        private int branchDelay;
+        private ushort flagsMask;
+        private bool waitForBeat, syncToBeat;
         private bool carry;
     }
 }

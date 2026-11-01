@@ -28,6 +28,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             values[0x380] = 0; // AHBCLKDIV
             values[0x2B8] = 0; // Flexcomm2 clock selector
             values[0x2C0] = 0; // Flexcomm4 clock selector
+            values[0x278] = 0; // CTIMER3 clock selector
             values[0x274] = 0; // CTIMER2 clock selector
             // Firmware's flash geometry selector: token 2 selects 512 KiB.
             // This register is absent from the public header; see model notes.
@@ -135,6 +136,18 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             base.Reset(); values.Clear();
             for(long i = 0; i < 64; i++) values[i * 4] = 0;
+        }
+    }
+}
+
+namespace Antmicro.Renode.Peripherals.Miscellaneous
+{
+    public class RazerLpcUsbPort : RazerLpcAnalog
+    {
+        public override void Reset()
+        {
+            base.Reset(); values.Clear();
+            values[0x50] = 0; // USBHSH PORTMODE: device enable / software power control
         }
     }
 }

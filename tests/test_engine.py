@@ -187,7 +187,7 @@ def test_ezh_mailbox_word_addressing_and_register_operations(cpu_image):
         bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
         bus.WriteDoubleWord(0x4001D020, code | 1)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
-        ezh.StepInstructions(len(words))
+        ezh.AdvanceCycles(len(words))
         assert ezh.Instructions == len(words)
         assert ezh.GetRegister(12) == 0x2002F000
         assert ezh.GetRegister(7) == 0xDEADBEEF
@@ -221,9 +221,90 @@ def test_ezh_external_flag_conditions(cpu_image):
         bus.WriteDoubleWord(code + 8, (1 << 18) | (3 << 20) | (15 << 5))
         bus.WriteDoubleWord(0x4001D020, code)
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
-        keyboard._ezh.StepInstructions(2)
+        keyboard._ezh.AdvanceCycles(2)
         assert keyboard._ezh.GetRegister(0) == 1
         bus.WriteDoubleWord(0x4001D024, 0xC0DE0013)
-        keyboard._ezh.StepInstructions(1)
+        keyboard._ezh.AdvanceCycles(1)
         assert keyboard._ezh.GetRegister(0) == 3
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_heartbeat_wait_and_synchronized_execution(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        bus = keyboard._bus
+        code = 0x20028000
+        words = [
+            0x32 | (4 << 16),  # heartbeat every four EZH cycles
+            0x72,  # wait for next beat
+            (1 << 18) | (1 << 20),  # R0 = 1
+            0x80000052,  # synchronize every instruction to heartbeat
+            (1 << 18) | (2 << 20),  # R0 = 2
+            0x52,  # disable synchronized execution
+            (1 << 18) | (3 << 20),  # R0 = 3
+        ]
+        bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(4)
+        assert ezh.Instructions == 2 and ezh.GetRegister(0) == 0
+        ezh.AdvanceCycles(2)
+        assert ezh.GetRegister(0) == 1
+        ezh.AdvanceCycles(3)
+        assert ezh.GetRegister(0) == 2
+        ezh.AdvanceCycles(4)
+        assert ezh.GetRegister(0) == 2  # sync disable waits for its own beat
+        ezh.AdvanceCycles(1)
+        assert ezh.GetRegister(0) == 3
+
+
+def test_ezh_scheduled_pc_write_executes_two_delay_slots(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        bus = keyboard._bus
+        code = 0x20028000
+        words = [
+            6 | (13 << 10) | (13 << 14) | (1 << 18) | (8 << 20) | 512,
+            (1 << 18) | (1 << 20),  # delay slot 1: R0 = 1
+            (1 << 18) | (1 << 10) | (2 << 20),  # delay slot 2: R1 = 2
+            (1 << 18) | (3 << 20),  # skipped: R0 = 3
+            (1 << 18) | (2 << 10) | (4 << 20),  # destination: R2 = 4
+        ]
+        bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(4)
+        assert [ezh.GetRegister(i) for i in range(3)] == [1, 2, 4]
+        assert ezh.ReadDoubleWord(0x28) == code + 20
+        assert keyboard.state().stopped_reason is None
+
+
+def test_ezh_absolute_call_return_and_conditional_decode(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from System import Array, Byte
+
+        bus = keyboard._bus
+        code = 0x20028000
+        words = [
+            (code + 24) | 3,  # GOSUB: address overlaps opcode and condition fields
+            (1 << 18) | (2 << 20),  # returned: R0 = 2
+            0x1C | (15 << 5),  # unsupported HOLD, EX false: no side effects
+            (1 << 18) | (1 << 10) | (3 << 20),  # R1 = 3
+            0x15 | (13 << 14),  # branch past the subroutine
+            0x12,
+            (1 << 18) | (1 << 20),  # subroutine: R0 = 1
+            0x15 | (15 << 14),  # return through RA
+        ]
+        bus.WriteBytes(Array[Byte](struct.pack(f"<{len(words)}I", *words)), code)
+        bus.WriteDoubleWord(0x4001D020, code)
+        bus.WriteDoubleWord(0x4001D024, 0xC0DE0011)
+        ezh = keyboard._ezh
+        ezh.AdvanceCycles(7)
+        assert ezh.GetRegister(15) == code + 4
+        assert [ezh.GetRegister(i) for i in range(2)] == [2, 3]
+        assert ezh.GetRegister(13) == code + 24
         assert keyboard.state().stopped_reason is None
