@@ -21,7 +21,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 for(long bank = 0; bank < 3; bank++) values[group + bank * 4] = 0;
             values[0x280] = 0; // MAINCLKSELA
             values[0x284] = 0; // MAINCLKSELB
+            values[0x41C] = 0; // FMCFLUSH: virtual flash has no prefetch cache
             values[0x400] = 0; // FMCCR
+            values[0xA18] = 0; // CLOCK_CTRL
+            values[0x38C] = 0; // WDTCLKDIV
             values[0x380] = 0; // AHBCLKDIV
             values[0x2B8] = 0; // Flexcomm2 clock selector
             values[0x2C0] = 0; // Flexcomm4 clock selector
@@ -41,6 +44,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         }
         public void WriteDoubleWord(long offset, uint value)
         {
+            if(offset == 0x38C) value &= 0xFF; // divider reset/request bits self-clear
             for(long group = 0x100; group <= 0x200; group += 0x100)
             {
                 if(offset >= group + 0x20 && offset <= group + 0x28 && offset % 4 == 0)
@@ -107,41 +111,6 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             if(offset == 0xC0) { values[0xB8] |= value; return; }
             if(offset == 0xC8) { values[0xB8] &= ~value; return; }
-            base.WriteDoubleWord(offset, value);
-        }
-    }
-}
-
-namespace Antmicro.Renode.Peripherals.Miscellaneous
-{
-    // INIT command is used by CLOCK_SetFLASHAccessCycles. Other commands are
-    // intentionally unsupported until flash read/program semantics are modeled.
-    public class RazerLpcFlashController : RazerLpcAnalog
-    {
-        public RazerLpcFlashController(IMachine machine) { this.machine = machine; }
-        private readonly IMachine machine;
-        public override void Reset()
-        {
-            base.Reset();
-            values.Clear();
-            values[0x00] = 0;
-            values[0x10] = values[0x14] = 0;
-            for(long i = 0; i < 4; i++) values[0x80 + i * 4] = 0;
-            values[0xFE0] = 0;
-        }
-        public override void WriteDoubleWord(long offset, uint value)
-        {
-            if(offset == 0xFE8) { values[0xFE0] &= ~value; return; }
-            if(offset == 0 && value == 2) { values[0] = value; values[0xFE0] |= 4; return; }
-            if(offset == 0 && value == 3)
-            {
-                var address = (ulong)values[0x10] * 16;
-                if(address + 16 > 0x80000) { values[0xFE0] |= 5; return; }
-                for(long i = 0; i < 4; i++)
-                    values[0x80 + i * 4] = machine.SystemBus.ReadDoubleWord(address + (ulong)i * 4);
-                values[0xFE0] |= 4; return;
-            }
-            if(offset == 0) { base.WriteDoubleWord(0x1000, value); return; }
             base.WriteDoubleWord(offset, value);
         }
     }

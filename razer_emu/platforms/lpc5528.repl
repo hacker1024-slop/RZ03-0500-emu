@@ -8,8 +8,7 @@ sram: Memory.MappedMemory @ sysbus 0x20000000
     size: 0x30000
 sramx: Memory.MappedMemory @ sysbus 0x04000000
     size: 0x8000
-flash: Memory.MappedMemory @ sysbus 0x00000000
-    size: 0x80000
+flash: MTD.RazerLpcFlash @ sysbus 0x00000000
 syscon: Miscellaneous.RazerLpcSyscon @ {
         sysbus 0x40000000;
         sysbus 0x50000000
@@ -26,10 +25,11 @@ anactrl: Miscellaneous.RazerLpcAnalog @ {
 // This is a virtual untrimmed device, not a copy of the specimen's factory data.
 nmpa: Memory.MappedMemory @ sysbus 0x0009fc00
     size: 0x400
-flashController: Miscellaneous.RazerLpcFlashController @ {
+flashController: MTD.RazerLpcFlashController @ {
         sysbus 0x40034000;
         sysbus 0x50034000
     }
+    memory: flash
 iocon: Miscellaneous.RazerLpcIocon @ {
         sysbus 0x40001000;
         sysbus 0x50001000
@@ -59,3 +59,11 @@ flexcomm2: I2C.RazerLpcI2c @ {
         sysbus 0x50088000
     }
     IRQ -> nvic@16
+wwdt: Timers.RazerLpcWatchdog @ {
+        sysbus 0x4000c000;
+        sysbus 0x5000c000
+    }
+ezh: Miscellaneous.RazerLpcEzh @ {
+        sysbus 0x4001d000;
+        sysbus 0x5001d000
+    }

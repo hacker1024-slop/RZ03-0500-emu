@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from .firmware import Firmware
+from .firmware import Firmware, FlashRegion
 
 
 def main(argv=None):
@@ -13,12 +13,21 @@ def main(argv=None):
     parser.add_argument(
         "--microseconds", type=int, default=1000, help="Virtual runtime (default 1000)"
     )
+    parser.add_argument(
+        "--flash-dump",
+        action="append",
+        default=[],
+        metavar="DIRECTORY",
+        help="Load a verified firmware-dump region (repeatable)",
+    )
     args = parser.parse_args(argv)
     try:
         from .core import Keyboard
 
         image = Firmware.load(args.firmware)
-        with Keyboard(image) as keyboard:
+        with Keyboard(
+            image, flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump]
+        ) as keyboard:
             state = keyboard.run_for(args.microseconds)
             print(json.dumps({"firmware_sha256": image.sha256, **state.to_dict()}, indent=2))
             if state.stopped_reason:

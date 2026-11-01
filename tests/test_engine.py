@@ -3,7 +3,7 @@ import struct
 
 import pytest
 
-from razer_emu import Firmware
+from razer_emu import Firmware, FlashRegion
 from razer_emu.core import Keyboard
 
 
@@ -41,7 +41,7 @@ def test_unknown_mmio_is_reported_and_stops_run(cpu_image):
             keyboard.run_for(100)
 
 
-def test_original_application_executes_until_missing_board_model(cpu_image):
+def test_original_application_needs_initialized_nvram(cpu_image):
     path = os.environ.get("RAZER_TEST_FIRMWARE")
     if not path:
         pytest.skip("Set RAZER_TEST_FIRMWARE to a private raw application image")
@@ -49,9 +49,9 @@ def test_original_application_executes_until_missing_board_model(cpu_image):
     with Keyboard(firmware) as keyboard:
         state = keyboard.run_for(20_000)
         assert state.instructions > 100_000
-        assert state.exception == 0
-        assert state.fault_status == 0
-        assert state.stopped_reason == "unsupported_mmio"
+        assert state.stopped_reason == "cpu_fault"
+        assert state.fault_status & 0x8200 == 0x8200
+        assert len(firmware.image) < state.fault_address < 0x80000
         assert state.elapsed_us < 20_000
 
 
@@ -79,3 +79,82 @@ def test_gpio_aliases_flash_reads_and_i2c_nack(cpu_image):
         bus.WriteDoubleWord(0x4008A820, 4)
         assert bus.ReadDoubleWord(0x4008A804) == 1
         assert keyboard.state().stopped_reason is None
+
+
+def test_flash_erase_ecc_program_and_reprogram_rejection(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        from Antmicro.Renode.Peripherals.Bus import BusAccessException
+
+        bus = keyboard._bus
+        command = 0x40034000
+        start, stop, status = command + 0x10, command + 0x14, command + 0xFE0
+        clear = command + 0xFE8
+        target = 0x44000
+        bus.WriteDoubleWord(start, target >> 4)
+        bus.WriteDoubleWord(stop, target >> 4)
+        bus.WriteDoubleWord(command, 4)
+        assert bus.ReadDoubleWord(status) == 4
+        bus.WriteDoubleWord(clear, 15)
+        bus.WriteDoubleWord(command, 3)
+        assert bus.ReadDoubleWord(command + 0x80) == 0
+        assert bus.ReadDoubleWord(status) == 12  # DONE + invalid ECC
+        with pytest.raises(BusAccessException):
+            bus.ReadDoubleWord(target)
+        # Load one physical word into the page register; the rest stays zero.
+        for i in range(4):
+            bus.WriteDoubleWord(command + 0x80 + i * 4, 0x12345678 + i)
+        bus.WriteDoubleWord(clear, 15)
+        bus.WriteDoubleWord(command, 8)
+        bus.WriteDoubleWord(clear, 15)
+        bus.WriteDoubleWord(command, 12)
+        assert bus.ReadDoubleWord(status) == 4
+        assert bus.ReadDoubleWord(target) == 0x12345678
+        assert bus.ReadDoubleWord(target + 12) == 0x1234567B
+        bus.WriteDoubleWord(clear, 15)
+        bus.WriteDoubleWord(command, 5)
+        assert bus.ReadDoubleWord(status) == 5  # no longer blank
+        bus.WriteDoubleWord(clear, 15)
+        bus.WriteDoubleWord(command, 12)
+        assert bus.ReadDoubleWord(status) == 5  # cannot program twice without erase
+        keyboard.reset()
+        assert bus.ReadDoubleWord(target) == 0x12345678  # CPU reset preserves flash
+
+
+def test_capture_holes_do_not_acquire_valid_flash_ecc(cpu_image):
+    region = FlashRegion(0x44000, bytes(range(32)), bytes([1] * 16 + [0] + [1] * 15))
+    with Keyboard(Firmware.load(cpu_image), flash_regions=[region]) as keyboard:
+        flash = keyboard._machine.sysbus.flash.internal
+        assert flash.IsProgrammed(0x44000)
+        assert not flash.IsProgrammed(0x44010)
+        assert keyboard.read_memory(0x44000, 32) == bytes(range(16)) + bytes(16)
+
+
+def test_original_application_with_verified_nvram(cpu_image):
+    path = os.environ.get("RAZER_TEST_FIRMWARE")
+    dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
+    if not path or not dumps:
+        pytest.skip(
+            "Set RAZER_TEST_FIRMWARE and RAZER_TEST_FLASH_DUMPS for private-image validation"
+        )
+    regions = [FlashRegion.load_dump(p) for p in dumps.split(os.pathsep)]
+    with Keyboard(Firmware.load(path), flash_regions=regions) as keyboard:
+        state = keyboard.run_for(20000)
+        assert state.instructions > 100_000
+        assert state.exception == 0
+        assert state.fault_status == 0
+        assert state.stopped_reason == "unsupported_mmio"
+
+
+def test_watchdog_feed_and_expiration_are_virtual_time_events(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        bus = keyboard._bus
+        base = 0x4000C000
+        bus.WriteDoubleWord(base + 4, 0xFF)
+        bus.WriteDoubleWord(base, 3)
+        for value in (0xAA, 0x55):
+            bus.WriteDoubleWord(base + 8, value)
+        assert keyboard.run_for(500).stopped_reason is None
+        for value in (0xAA, 0x55):
+            bus.WriteDoubleWord(base + 8, value)
+        assert keyboard.run_for(500).stopped_reason is None
+        assert keyboard.run_for(700).stopped_reason == "watchdog_expired"

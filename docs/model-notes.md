@@ -8,7 +8,7 @@ Primary register-layout reference: [NXP LPC5528 header](https://github.com/nxp-m
 | --- | --- | --- |
 | Cortex-M33 | Renode 1.17.0. Original reset executes MSR MSPLIM. Synthetic tests check MRS readback, FPU and interrupt entry/return. | Not a silicon timing model. TrustZone disabled for the LPC5528 target. |
 | SRAM | 192 KiB at 0x20000000, 32 KiB at 0x04000000. Vectors select stack 0x04008000. | Other aliases and retention not implemented. |
-| Flash | 512 KiB memory backing, application at 0x8000. Flash controller command 2 initializes access timing; command 3 reads a 16-byte word and raises DONE. | No bootloader execution, erase/program command implementation or persistent backing yet. Unloaded flash starts at 0xFF, not specimen data. |
+| Flash | 512 KiB memory backing, application at 0x8000. Flash controller supports read-mode setup, 16-byte reads, page erase, blank check, page-buffer writes and 512-byte page programming. Unprogrammed words have invalid ECC. | No bootloader execution or persistent backing yet. CPU reads of erased words bus-fault; controller reads return zeros with ECC_ERR. Programming an already programmed page is rejected. Erase/program completion is immediate, not cycle accurate. |
 | NMPA | 0x9FC00–0xA0000 backed by zeros, representing unavailable trims. Firmware checks validity bits and uses its own fallback path. | Virtual defaults, not measured factory values. Writes are not protected yet. |
 | SYSCON +0xFE0 | Firmware at 0x200098BE reads low 9 bits and selects flash-related geometry from a table. Token 2 selects 0x80000. | Undocumented in the current public header. Token 2 is a virtual 512 KiB configuration, not a live silicon-ID measurement. |
 | SYSCON +0x2EC | Firmware at 0x20002352 consumes bit 0 in a timing calculation. Model returns 0. | Reserved in the current public header; bit-clear is an explicit bring-up assumption requiring confirmation. |
@@ -19,3 +19,12 @@ Primary register-layout reference: [NXP LPC5528 header](https://github.com/nxp-m
 | Flexcomm2/4 | LPC I²C master registers and pending-state transitions; absent target addresses NACK. | DMA request handshake and external LED controller forthcoming. |
 
 The emulator changes peripheral state, not application instructions. Do not replace a missing model with a patch that skips initialization or fakes USB replies. Bootloader emulation requires a valid bootloader image and a separate boot path; do not interpret unreadable dump bytes as code.
+
+Flash behavior references: [NXP explanation of erased memory and ECC](https://community.nxp.com/t5/LPC-Microcontrollers/Default-Flash-Memory-state/m-p/1052473), [LPC55 HAL flash driver](https://github.com/lpc55/lpc55-hal/blob/master/src/drivers/flash.rs). Raw inspection reads bypass ECC faults; firmware reads do not.
+
+| Additional component | Status |
+| --- | --- |
+| WWDT | Renode LimitTimer at FRO 1 MHz / 4, AA/55 feed sequence, reload, feed-window check and expiration. Expiration stops the core as `watchdog_expired`; boot-ROM reset and warning IRQ remain unimplemented. |
+| EZH/SmartDMA | Control and mailbox registers at 0x4001D000, documented by [NXP AN14650](https://www.nxp.com/docs/en/application-note/AN14650.pdf). A keyed START write stops as unsupported rather than faking execution. Original firmware requests entry 0x20001001 with mailbox 0x20026872. This is a separate custom-ISA coprocessor, not ARM or the newer RISC-V EZH-V. |
+
+Flash captures are external inputs. A fully valid 16-byte capture word is treated as programmed; a byte-validity mask is not a measurement of physical ECC cells. For captures spanning the application, the explicitly supplied application image takes precedence. CPU reset preserves simulated nonvolatile data; it reloads the selected application handoff. Both image bytes and simulated erase/program effects remain private unless a caller explicitly exports them.

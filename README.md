@@ -30,7 +30,15 @@ razer-emu /path/to/application.bin --microseconds 20000
 
 The CLI prints CPU state, executed-instruction count, virtual duration and unsupported-access counters as JSON. Exit status `2` means the firmware reached missing hardware behavior or a CPU fault; diagnostics go to stderr. Exit status `1` means loading or configuration failed. Exit status `0` only means the requested time slice completed.
 
-The verified application capture from firmware-dump version 1.1.1 is the initial development target. Updater payloads and complete flash dumps must be converted to raw application images before loading. Other models are not supported yet.
+The verified application capture from firmware-dump version 1.1.1 is the initial development target. The application expects initialized settings outside its own image. Load private, verified region captures from the firmware-dump tool:
+
+```sh
+razer-emu application.bin --flash-dump ./settings-capture --microseconds 20000
+```
+
+Repeat `--flash-dump` for additional regions. The importer verifies capture hashes and masks; incomplete 16-byte words remain unprogrammed and retain invalid ECC. An application-only boot can fault when it accesses absent profile data. Captures may contain private settings and macros; do not publish them.
+
+Updater payloads and complete flash dumps must be converted to raw application images before loading. Other models are not supported yet.
 
 ## Core library
 
@@ -48,16 +56,18 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
         print("\n".join(keyboard.logs()))
 ```
 
+`Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
+
 `reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Keyboard-matrix input, encoder events, LED observation and USB requests are forthcoming as their peripheral models are completed.
 
 ## Implementation and limits
 
-- Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM/flash backing, GPIO register behavior and the virtual clock infrastructure.
+- Renode supplies Cortex-M33 instruction execution, floating point, NVIC, exception handling, SRAM backing, the memory bus, GPIO register behavior and the virtual clock infrastructure.
 - The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. The incomplete bootloader capture is not executed.
-- Small C# models implement the observed clock/power control registers, flash-controller initialization/readback, four-channel match timers, DMA configuration and Flexcomm I²C master bring-up.
+- Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA configuration, Flexcomm I²C master bring-up, watchdog feeding/countdown, and EZH control registers. EZH instruction execution remains unsupported.
 - Unknown bus accesses and unsupported operations in these models are checked every 10 virtual microseconds. Several accesses can occur within that interval before execution stops.
 - Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2 source are 96 MHz. Clock gating, analog behavior, resets, DMA data movement and pin electrical behavior are incomplete.
-- Unloaded flash defaults to erased bytes; no specimen settings or bootloader are fabricated. Factory trim defaults and undocumented register assumptions are described in [model notes](docs/model-notes.md). These are not a recovered copy of a particular keyboard's factory data or persistent settings.
+- Unloaded flash has invalid ECC; controller reads report ECC errors and CPU reads fault. No specimen settings or bootloader are fabricated. Factory trim defaults and undocumented register assumptions are described in [model notes](docs/model-notes.md). These are not a recovered copy of a particular keyboard's factory data or persistent settings.
 
 ## Tests
 
@@ -79,7 +89,7 @@ To include execution of your private application image:
 RAZER_TEST_FIRMWARE=/path/to/application.bin python -m pytest --run-engine
 ```
 
-The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. The private-image test checks progress into initialization and explicitly expects a stop at missing hardware; it does not assert a working keyboard.
+The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. Private-image tests distinguish missing persistent settings from missing peripheral models; they do not assert a working keyboard. To validate with initialized settings, set `RAZER_TEST_FLASH_DUMPS` to capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
 
 ## Remaining milestones
 

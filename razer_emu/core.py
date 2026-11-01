@@ -15,6 +15,7 @@ class State:
     elapsed_us: int
     exception: int
     fault_status: int
+    fault_address: int | None
     unknown_reads: int
     unknown_writes: int
     stopped_reason: str | None
@@ -44,9 +45,11 @@ class Keyboard:
         "flexcomm4",
         "flexcomm2",
         "gpio",
+        "wwdt",
+        "ezh",
     )
 
-    def __init__(self, firmware: Firmware):
+    def __init__(self, firmware: Firmware, *, flash_regions=()):
         if Keyboard._active:
             raise RuntimeError("Use one Keyboard per process")
         # Renode is deliberately lazy-loaded, allowing file inspection without it.
@@ -59,6 +62,7 @@ class Keyboard:
 
         self.firmware = firmware
         self._emulation = Emulation()
+        self._engine = self._emulation.internal
         self._name = "keyboard-" + uuid4().hex
         self._log = MemoryBackend()
         Logger.AddBackend(self._log, self._name)
@@ -68,7 +72,16 @@ class Keyboard:
         self._closed = False
         try:
             if not Keyboard._models_loaded:
-                for name in ("LpcGpio.cs", "LpcSyscon.cs", "LpcTimer.cs", "LpcDma.cs", "LpcI2c.cs"):
+                for name in (
+                    "LpcGpio.cs",
+                    "LpcSyscon.cs",
+                    "LpcTimer.cs",
+                    "LpcDma.cs",
+                    "LpcI2c.cs",
+                    "LpcFlash.cs",
+                    "LpcWatchdog.cs",
+                    "LpcEzh.cs",
+                ):
                     model = files("razer_emu").joinpath("platforms/" + name)
                     _, error = Monitor().execute(f"include @{model}")
                     if error:
@@ -77,9 +90,17 @@ class Keyboard:
             self._machine.load_repl(str(files("razer_emu").joinpath("platforms/lpc5528.repl")))
             self._bus = self._machine.sysbus.internal
             self._cpu = self._machine.sysbus.cpu.internal
+            self._modeled_peripherals = tuple(
+                getattr(self._machine.sysbus, name).internal for name in self._models
+            )
             from System import Array, Byte
 
-            self._bus.WriteBytes(Array[Byte](b"\xff" * 0x80000), 0)
+            flash = self._machine.sysbus.flash.internal
+            for region in flash_regions:
+                flash.LoadRegion(
+                    region.address, Array[Byte](region.data), Array[Byte](region.valid_mask)
+                )
+            self._watchdog = self._machine.sysbus.wwdt.internal
             self.reset()
         except BaseException:
             self.close()
@@ -101,12 +122,12 @@ class Keyboard:
 
         if self._closed:
             raise RuntimeError("Keyboard is closed")
-        self._emulation.PauseAll()
+        self._engine.PauseAll()
         self._machine.Reset()
         self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)
         self._bus.WriteBytes(Array[Byte](bytes(0x8000)), 0x04000000)
         self._bus.WriteBytes(Array[Byte](self.firmware.image), RUNTIME_BASE)
-        self._bus.WriteBytes(Array[Byte](self.firmware.image), FLASH_APPLICATION)
+        self._machine.sysbus.flash.LoadImage(FLASH_APPLICATION, Array[Byte](self.firmware.image))
         self._cpu.VectorTableOffset = RUNTIME_BASE
         self._cpu.SP = self._register(self.firmware.initial_sp)
         self._cpu.PC = self._register(self.firmware.reset_vector)
@@ -121,7 +142,7 @@ class Keyboard:
             raise ValueError("Step count must be between 1 and 1000")
         self._ensure_running()
         self._cpu.Step(count)
-        self._emulation.PauseAll()
+        self._engine.PauseAll()
         return self.state()
 
     def run_for(self, microseconds):
@@ -136,7 +157,7 @@ class Keyboard:
         remaining = microseconds
         while remaining and not self._reason:
             quantum = min(10, remaining)
-            self._emulation.RunFor(TimeInterval.FromMicroseconds(quantum))
+            self._engine.RunFor(TimeInterval.FromMicroseconds(quantum))
             self._elapsed_us += quantum
             remaining -= quantum
             self.state()
@@ -148,14 +169,12 @@ class Keyboard:
         exception = self._value(self._cpu.CPSR) & 0x1FF
         faults = self._bus.ReadDoubleWord(0xE000ED28)
         reads = self._bus.UnexpectedReads - self._initial_reads
-        reads += sum(
-            int(getattr(self._machine.sysbus, name).UnsupportedReads) for name in self._models
-        )
+        reads += sum(int(peripheral.UnsupportedReads) for peripheral in self._modeled_peripherals)
         writes = self._bus.UnexpectedWrites - self._initial_writes
-        writes += sum(
-            int(getattr(self._machine.sysbus, name).UnsupportedWrites) for name in self._models
-        )
-        if reads or writes:
+        writes += sum(int(peripheral.UnsupportedWrites) for peripheral in self._modeled_peripherals)
+        if self._watchdog.Expired:
+            self._reason = "watchdog_expired"
+        elif reads or writes:
             self._reason = "unsupported_mmio"
         elif exception in (3, 4, 5, 6) or faults:
             self._reason = "cpu_fault"
@@ -166,6 +185,7 @@ class Keyboard:
             self._elapsed_us,
             exception,
             faults,
+            self._bus.ReadDoubleWord(0xE000ED38) if faults & 0x8000 else None,
             reads,
             writes,
             self._reason,
@@ -192,6 +212,8 @@ class Keyboard:
             or not any(start <= address and address + length <= end for start, end in ranges)
         ):
             raise ValueError("Inspection must remain within a modeled memory region")
+        if address + length <= 0x80000:
+            return bytes(self._machine.sysbus.flash.ReadRaw(address, length))
         return bytes(self._bus.ReadBytes(address, length))
 
     def _ensure_running(self):
@@ -205,7 +227,7 @@ class Keyboard:
             return
         from Antmicro.Renode.Logging import Logger
 
-        self._emulation.PauseAll()
+        self._engine.PauseAll()
         self._emulation.rem_mach(self._name)
         Logger.RemoveBackend(self._log)
         self._emulation.clear()
