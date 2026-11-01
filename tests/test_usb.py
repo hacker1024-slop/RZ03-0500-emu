@@ -61,6 +61,31 @@ def test_bus_reset_resets_protocol_without_resetting_cpu_or_ram(usb_board):
     assert not device.HostReset(True)
 
 
+def test_host_frames_drive_sof_interrupts_and_frame_number(usb_board):
+    keyboard, bus, device = usb_board
+    bus.WriteDoubleWord(BASE + 0x24, 0x40000000)
+    keyboard.run_for(124)
+    assert not device.IRQ.IsSet
+    keyboard.run_for(1)
+    assert device.IRQ.IsSet
+    assert device.ReadDoubleWord(4) & 0x7FF == 0
+    bus.WriteDoubleWord(BASE + 0x20, 0x40000000)
+    assert not device.IRQ.IsSet
+    keyboard.run_for(875)
+    assert device.ReadDoubleWord(4) & 0x7FF == 1
+    assert device.IRQ.IsSet
+    assert device.HostReset(False)
+    bus.WriteDoubleWord(BASE + 0x20, 0xC0000FFF)
+    keyboard.run_for(999)
+    assert not device.IRQ.IsSet
+    keyboard.run_for(1)
+    assert device.IRQ.IsSet
+    assert device.ReadDoubleWord(4) & 0x7FF == 1
+    device.VbusPresent = False
+    keyboard.run_for(2000)
+    assert device.ReadDoubleWord(4) & 0x7FF == 1
+
+
 def test_setup_aborts_control_stalls_and_out_zero_length_packet(usb_board):
     keyboard, bus, device = usb_board
     _arm(bus, 0, BUFFER + 64, 64, flags=0xA0000000)

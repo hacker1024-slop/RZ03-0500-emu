@@ -3,6 +3,8 @@ using System;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Miscellaneous;
+using Antmicro.Renode.Peripherals.Timers;
+using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.USB
 {
@@ -21,6 +23,10 @@ namespace Antmicro.Renode.Peripherals.USB
         public RazerLpcUsbDevice(IMachine machine, RazerLpcUsbPhy phy)
         {
             this.machine = machine; this.phy = phy;
+            frameClock = new LimitTimer(machine.ClockSource, 1000000, this, "usb-sof",
+                limit: 125, workMode: WorkMode.Periodic, eventEnabled: true);
+            frameClock.LimitReached += StartOfFrame;
+            Reset();
         }
         public override void Reset()
         {
@@ -33,6 +39,8 @@ namespace Antmicro.Renode.Peripherals.USB
             Array.Clear(lastCommands, 0, lastCommands.Length);
             Array.Clear(positions, 0, positions.Length);
             TransferError = null;
+            frameClock?.Reset(); hostFramesActive = false;
+            microframe = 0; microframesPerFrame = 8;
             IRQ?.Unset();
         }
         public GPIO IRQ { get; } = new GPIO();
@@ -52,6 +60,8 @@ namespace Antmicro.Renode.Peripherals.USB
                 values[0] = value ? values[0] | 0x10000000 : values[0] & ~0x10000000U;
                 values[16] = value ? values[16] | 0x100000 : values[16] & ~0x100000U;
                 if(changed && Enabled) RaiseVbusChange();
+                if(!value) hostFramesActive = false;
+                UpdateFrameClock();
             }
         }
         public override uint ReadDoubleWord(long offset)
@@ -69,6 +79,12 @@ namespace Antmicro.Renode.Peripherals.USB
             values[32] = 0x80000000;
             Array.Clear(lastCommands, 0, lastCommands.Length);
             Array.Clear(positions, 0, positions.Length);
+            values[4] &= ~0x7FFU;
+            microframe = 0; microframesPerFrame = highSpeed ? 8 : 1;
+            hostFramesActive = true;
+            frameClock.Limit = highSpeed ? 125UL : 1000UL;
+            frameClock.ResetValue();
+            UpdateFrameClock();
             UpdateInterrupt();
             return true;
         }
@@ -161,6 +177,24 @@ namespace Antmicro.Renode.Peripherals.USB
                 if(index >= 2 && (values[28] & (1U << index)) != 0) values[24] ^= 1U << index;
             }
             UpdateInterrupt();
+            UpdateFrameClock();
+        }
+        private void StartOfFrame()
+        {
+            if(!CanTransact || (values[0] & 0xA0000) != 0)
+            { UpdateFrameClock(); return; }
+            if(++microframe == microframesPerFrame)
+            {
+                microframe = 0;
+                values[4] = (values[4] & ~0x7FFU) | ((values[4] + 1) & 0x7FF);
+            }
+            values[32] |= 0x40000000;
+            UpdateInterrupt();
+        }
+        private void UpdateFrameClock()
+        {
+            if(frameClock != null)
+                frameClock.Enabled = hostFramesActive && CanTransact && (values[0] & 0xA0000) == 0;
         }
         private bool ValidList()
         {
@@ -231,6 +265,7 @@ namespace Antmicro.Renode.Peripherals.USB
             default: base.WriteDoubleWord(offset, value); return;
             }
             UpdateInterrupt();
+            UpdateFrameClock();
         }
         private void RaiseVbusChange()
         {
@@ -242,6 +277,9 @@ namespace Antmicro.Renode.Peripherals.USB
         private readonly IMachine machine;
         private readonly RazerLpcUsbPhy phy;
         private bool vbusPresent;
+        private readonly LimitTimer frameClock;
+        private bool hostFramesActive;
+        private int microframe, microframesPerFrame;
         private readonly uint[,] lastCommands = new uint[12, 2];
         private readonly int[,] positions = new int[12, 2];
         private const uint InterruptMask = 0xC0000FFF;
