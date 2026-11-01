@@ -5,6 +5,7 @@ from importlib.resources import files
 from uuid import uuid4
 
 from .firmware import FLASH_APPLICATION, RUNTIME_BASE, Firmware
+from .usb import UsbHost
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,8 @@ class Keyboard:
                 )
             self._watchdog = self._machine.sysbus.wwdt.internal
             self._ezh = self._machine.sysbus.ezh.internal
+            self._usb_device = self._machine.sysbus.usbDevice.internal
+            self.usb = UsbHost(self, self._usb_device)
             self.reset()
         except BaseException:
             self.close()
@@ -191,6 +194,8 @@ class Keyboard:
             self._reason = "ezh_bus_fault"
         elif self._ezh.UnsupportedInstruction:
             self._reason = "unsupported_ezh_instruction"
+        elif self._usb_device.TransferError:
+            self._reason = "unsupported_usb_transfer"
         elif reads or writes:
             self._reason = "unsupported_mmio"
         elif exception in (3, 4, 5, 6) or faults:

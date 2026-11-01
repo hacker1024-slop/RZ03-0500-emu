@@ -2,7 +2,7 @@
 
 A firmware-driven emulator for the Razer BlackWidow V4 75% (LPC5528 / Cortex-M33), built on [Renode](https://renode.io/) and [pyrenode3](https://github.com/antmicro/pyrenode3).
 
-**Work in progress. It does not yet emulate a working USB keyboard or support Razer Synapse.** The original application executes without instruction patches, decompresses its runtime data, and reaches board initialization. Unsupported peripheral accesses stop execution with diagnostics. A completed time slice alone is not evidence that boot completed.
+**Work in progress. Keyboard input, lighting and Razer Synapse support remain unfinished.** The original application executes without instruction patches, enumerates on an in-process virtual USB host, returns its HID descriptors, and answers a Razer firmware-version query. Unsupported peripheral accesses stop execution with diagnostics. Enumeration or a completed time slice alone does not establish a working keyboard.
 
 This project is AI-generated, experimental, unofficial, and unaffiliated with Razer. Peripheral behavior is incomplete and cannot establish that firmware modifications will work on physical hardware. The emulator itself does not open or modify a physical keyboard.
 
@@ -28,7 +28,7 @@ On NixOS, `nix-shell` provides the system dependencies and environment variables
 razer-emu /path/to/application.bin --microseconds 20000
 ```
 
-The CLI prints CPU state, executed-instruction count, virtual duration and unsupported-access counters as JSON. EZH instruction stops and bus faults have distinct stop reasons; `ezh_fault_address` identifies a coprocessor bus fault separately from Cortex-M fault registers. `ezh_holding` reports whether it is waiting at HOLD for a Boolean trigger. Exit status `2` means the firmware reached missing hardware behavior or a fault; diagnostics go to stderr. Exit status `1` means loading or configuration failed. Exit status `0` only means the requested time slice completed.
+The CLI prints CPU state, executed-instruction count, virtual duration and unsupported-access counters as JSON. EZH instruction stops and bus faults have distinct stop reasons; `ezh_fault_address` identifies a coprocessor bus fault separately from Cortex-M fault registers. `ezh_holding` reports whether it is waiting at HOLD for a Boolean trigger. Exit status `2` means missing hardware behavior, a fault or a failed USB transaction; diagnostics go to stderr. Exit status `1` means loading or configuration failed. Exit status `0` only means the requested operation and time slice completed.
 
 The verified application capture from firmware-dump version 1.1.1 is the initial development target. The application expects initialized settings outside its own image. Load private, verified region captures from the firmware-dump tool:
 
@@ -37,6 +37,14 @@ razer-emu application.bin --flash-dump ./settings-capture --microseconds 20000
 ```
 
 Repeat `--flash-dump` for additional regions. The importer verifies capture hashes and masks; incomplete 16-byte words remain unprogrammed and retain invalid ECC. An application-only boot can fault when it accesses absent profile data. Captures may contain private settings and macros; do not publish them.
+
+To attach the virtual USB host, read descriptors, assign an address and select the first configuration:
+
+```sh
+razer-emu application.bin --flash-dump ./settings-capture --usb-enumerate --microseconds 1000
+```
+
+The JSON includes `usb` metadata and raw descriptors produced by firmware. The requested time slice runs after enumeration. USB failures include `usb_error`. This host is entirely in-process; it does not connect to a physical keyboard or expose a network USB device.
 
 Updater payloads and complete flash dumps must be converted to raw application images before loading. Other models are not supported yet.
 
@@ -58,7 +66,19 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 
 `Keyboard(..., flash_regions=[FlashRegion.load_dump(directory)])` provides the same capture loading in the library; import `FlashRegion` from `razer_emu`.
 
-`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Keyboard-matrix input, encoder events, LED observation and USB requests are forthcoming as their peripheral models are completed.
+`reset()`, `step(count)`, `run_for(microseconds)`, `state()`, `read_memory()` and `logs()` are frontend-independent. Use the core on an owning worker thread in a GUI. Renode has process-global state: use **one emulator per process**, and do not mix another Renode simulation into that process. Keyboard-matrix input, encoder events and LED observation are forthcoming as their peripheral models are completed.
+
+USB control requests are available through `keyboard.usb`:
+
+```python
+from razer_emu import SetupPacket
+
+# Inside the Keyboard context, with the necessary flash captures loaded:
+usb_info = keyboard.usb.enumerate_device()
+descriptor = keyboard.usb.control(SetupPacket(0x80, 6, value=0x100, length=18))
+```
+
+`connect()`, `reset_bus()` and `control()` can also be called separately. NAK polling advances virtual time within a bounded budget. `UsbTimeout`, `UsbStall` and `UsbError` distinguish deadline expiry, firmware STALL and emulator/device errors. The current host uses 64-byte endpoint-zero packets for this high-speed keyboard. Control replies come from the firmware's USB stack, including class requests; the host contains no Razer response implementation.
 
 ## Implementation and limits
 
@@ -66,7 +86,7 @@ with Keyboard(Firmware.load("application.bin")) as keyboard:
 - The application is loaded at runtime address `0x20000000` and flash-storage address `0x8000`. Its reset vector and stack pointer come from the original image. The incomplete bootloader capture is not executed.
 - Small C# models implement the observed clock/power control registers, flash-controller read/erase/program operations, four-channel match timers, DMA configuration, Flexcomm I²C master bring-up, watchdog feeding/countdown, and EZH control registers. EZH supports initial mailbox/stack/GPIO operations, heartbeat synchronization, basic arithmetic, branches/calls, tight loops, Boolean detection and HOLD/vector dispatch. Its interrupt outputs and mailbox handshake are modeled, but the board's trigger/interrupt routing, emergency-vector execution and much of its instruction set remain incomplete.
 - Unknown bus accesses and unsupported operations in these models are checked every 10 virtual microseconds. Several accesses can occur within that interval before execution stops.
-- The USB PHY implements control aliases and functional power/PLL readiness. The USB device controller implements its register/interrupt control plane and endpoint aborts, backed by 16 KiB of USB RAM. Host packet transactions and USB enumeration are not implemented yet; enabled controller registers alone do not establish a working USB device.
+- The USB PHY implements control aliases and functional power/PLL readiness. The IP3511 HS controller implements bus reset, SETUP/IN/OUT packet DMA, completion interrupts, endpoint aborts, byte-count tracking and double buffering, backed by 16 KiB of USB RAM. SOF timing, isochronous traffic, suspend/resume, LPM and external USB transport remain incomplete.
 - Timing is functional, not cycle accurate. Virtual CPU rate and currently configured CTIMER2/3 sources are 96 MHz. Clock gating, analog behavior, resets, DMA data movement and pin electrical behavior are incomplete.
 - Unloaded flash has invalid ECC; controller reads report ECC errors and CPU reads fault. No specimen settings or bootloader are fabricated. Factory trim defaults and undocumented register assumptions are described in [model notes](docs/model-notes.md). These are not a recovered copy of a particular keyboard's factory data or persistent settings.
 
@@ -90,13 +110,13 @@ To include execution of your private application image:
 RAZER_TEST_FIRMWARE=/path/to/application.bin python -m pytest --run-engine
 ```
 
-The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. Private-image tests distinguish missing persistent settings from missing peripheral models; they do not assert a working keyboard. To validate with initialized settings, set `RAZER_TEST_FLASH_DUMPS` to capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
+The synthetic Cortex-M33 fixture checks stack-limit register readback, floating-point execution, periodic MR1 interrupts, acknowledgement, exception return, reset and unsupported-access reporting. USB tests cover packet DMA, short transfers, completion/abort behavior and virtual deadlines. Private-image tests target application 1.1.1 and validate descriptor reads, configuration, STALL recovery and a 90-byte Razer feature-report exchange; they do not assert working keyboard input. Set `RAZER_TEST_FLASH_DUMPS` to verified capture directories separated by your operating system's path separator (`:` on Linux, `;` on Windows).
 
 ## Remaining milestones
 
 1. Complete MCU/board peripheral behavior and establish reproducible application boot.
 2. Recover matrix, encoder and LED wiring; expose input and output events through the core.
-3. Complete the firmware-facing USB controller and validate enumeration and HID transactions in-process.
+3. Complete USB timing and interrupt/HID traffic, including input generated by the original scanner.
 4. **Last:** export that controller through Renode USB/IP and validate real Razer software in a QEMU Windows guest. Host-side USB forwarding has not been implemented or tested yet.
 
 MIT licensed. Third-party components retain their respective licenses.
