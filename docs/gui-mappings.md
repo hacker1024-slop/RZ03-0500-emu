@@ -14,13 +14,14 @@ At `0x20015772` in 1.1.1 and `0x200156B6` in 1.2.1, the application stores seven
 
 The controller address bytes at `0x20014F00` begin `A0 BE A6`: 7-bit addresses `0x50`, `0x5F`, `0x53` on Flexcomm4. The GUI attaches these compatible lighting models; the third supports the board's underglow. Per-key RGB uses the first two. All 18 underglow records occupy row 6 and use the third controller. The GUI represents them as nine segments per side, with approximate placement on the image. The RGB records match both 1.1.1 and 1.2.1. A uses controller 0 and channels `(161,145,177)` in red/green/blue order. Existing firmware-driven static-green snapshots independently show its green channel enabled while its red/blue channels are zero.
 
-Colours apply the channel enable mask, global current and shutdown state. They are normalized register levels, not calibrated emitted light. The background photograph's baked-in lighting is decorative and does not represent running firmware state.
+Colours apply the channel enable mask, global current and shutdown state. They are normalized register levels, not calibrated emitted light.
 
 ## Physical view and image
 
-Razer's public [ANSI selection geometry](https://apps.razer.com/synapse/products/677/ui/static/media/1.9d8f32eb.svg) identifies key legends and visual regions. Those identifiers are joined to the default binding IDs; its `data-row`/`data-col` attributes are **not** used as electrical contacts or blindly indexed into the firmware table. Rectangular hit regions are calibrated to the [actual top-view product image](https://apps.razer.com/synapse/products/677/ui/677_0/PluginImages/677_0_1_dashboard3x.png). They are approximate inset regions, not recovered switch boundaries. Manufacturer SVG paths, logos, application bundles and photographs are not redistributed in the source package.
+The GUI uses an AI-generated illustration of the unlit ANSI keyboard.
+Rectangular hit regions align with the pictured controls. The original
+firmware supplies the overlay colors through the emulated lighting controllers.
 
-The photograph is fetched separately and cached with SHA-256 `dac11c5e9df3c26530f6a98bac2c25ac51c94d3b4daee198f5498a3fd50906e8`. It remains manufacturer artwork, outside the project's MIT code license. A local image can be selected with `--background`; its framing must match the supplied map.
 
 ## Validation
 
