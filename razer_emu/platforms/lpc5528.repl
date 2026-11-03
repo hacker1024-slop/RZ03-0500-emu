@@ -100,3 +100,6 @@ usbDevice: USB.RazerLpcUsbDevice @ {
 
 ezhCpu: CPU.RazerEzhCpu @ sysbus
     ezh: ezh
+
+dwt: Miscellaneous.DWT @ sysbus 0xe0001000
+    frequency: 96000000
