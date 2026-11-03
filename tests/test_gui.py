@@ -13,7 +13,7 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
     firmware = os.environ.get("RAZER_TEST_FIRMWARE")
     dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
     full_image = os.environ.get("RAZER_TEST_FULL_IMAGE")
-    if not full_image and (not firmware or not dumps):
+    if not firmware and not full_image:
         pytest.skip("Supply private firmware")
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")

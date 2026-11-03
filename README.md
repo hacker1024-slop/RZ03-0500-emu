@@ -114,8 +114,10 @@ bootloader at offset 0 and the application at offset `0x8000`.
 
 From the command line, pass an application as the positional argument, add
 `--bootloader-dump` for a raw bootloader or verified capture folder, or pass
-`--full-image flash.bin` by itself. Separate images can be supplemented with
-repeated `--flash-dump` captures.
+`--full-image flash.bin` by itself. In the first two modes, the GUI generates
+blank, ECC-valid settings in emulated flash. Firmware 1.1.1 can start with its
+defaults from this state. Optional `--flash-dump` captures override those bytes.
+Complete images supply their own settings.
 
 The GUI bundles an AI-generated image of the unlit keyboard. The overlaid colour indicators and translucent key highlights show the emulated controller output.
 

@@ -34,7 +34,17 @@ def load_images(configuration, layout):
         image = Firmware.load(configuration["firmware"])
         boot_path = configuration.get("bootloader")
         boot = Bootloader.load(boot_path) if boot_path else None
+        # Blank data with valid ECC lets the application take its default
+        # settings path. Physically erased words instead fault on CPU reads.
+        settings_start, flash_end = 0x44000, 0x80000
         regions = [FlashRegion.load_dump(path) for path in configuration["flash_dumps"]]
+        blank_mask = bytearray(b"\x01" * (flash_end - settings_start))
+        for capture in regions:
+            start = max(settings_start, capture.address)
+            end = min(flash_end, capture.address + len(capture.data))
+            if start < end:
+                blank_mask[start - settings_start:end - settings_start] = bytes(end - start)
+        regions.insert(0, FlashRegion(settings_start, bytes(len(blank_mask)), blank_mask))
     if image.sha256 != layout["firmware_sha256"]:
         raise ValueError("This key/RGB map is verified only for application firmware 1.1.1")
     return image, boot, regions
