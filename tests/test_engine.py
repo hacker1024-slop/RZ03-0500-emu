@@ -1029,3 +1029,13 @@ def test_private_complete_bootloader_cold_boots_original_application(cpu_image):
             keyboard.reset()
             assert keyboard.state().pc == boot.reset_vector & ~1
             assert keyboard.read_memory(0x20000000, 16) == bytes(16)
+
+
+def test_machine_reset_disables_systick_interrupt(cpu_image):
+    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+        nvic = keyboard._machine.sysbus.nvic.internal
+        nvic.WriteDoubleWord(0x14, 95_999)
+        nvic.WriteDoubleWord(0x10, 7)
+        assert nvic.ReadDoubleWord(0x10) & 2
+        keyboard.reset()
+        assert nvic.ReadDoubleWord(0x10) & 7 == 4

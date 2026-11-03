@@ -294,6 +294,9 @@ class Keyboard:
         self._hard_pause_processors()
         self._engine.PauseAll()
         self._machine.Reset()
+        # Renode 1.17 can retain SysTick TICKINT across a machine reset.
+        # Restore the LPC5528 reset value before running the next image.
+        self._machine.sysbus.nvic.internal.WriteDoubleWord(0x10, 1 << 2)
         self._runner.Reset()
         if warm:
             self._machine.sysbus.pmc.internal.MarkSystemReset()
