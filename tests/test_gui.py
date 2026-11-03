@@ -1,6 +1,7 @@
 """Opt-in photo-backed QML click through the original firmware worker."""
 
 import os
+import select
 import socket
 import struct
 import time
@@ -121,6 +122,23 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
         wait_until(lambda: bridge.running)
         idle_time = bridge.virtualTime
         wait_until(lambda: bridge.virtualTime != idle_time)
+
+        def virtual_seconds():
+            return float(bridge.virtualTime.split()[0])
+
+        wait_until(lambda: virtual_seconds() > 0.5)
+        bridge.reset()
+        wait_until(lambda: virtual_seconds() < 0.5)
+        wait_until(exported)
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as guest:
+            guest.sendall(struct.pack("!HHI32s", 0x0111, 0x8003, 0, b"1-1"))
+            with guest.makefile("rb") as response:
+                assert response.read(8) == struct.pack("!HHI", 0x0111, 3, 0)
+                assert len(response.read(struct.calcsize("!256s32sIIIHHHBBBBBB"))) == 312
+                bridge.reset()
+                wait_until(lambda: bool(select.select([guest], [], [], 0)[0]))
+                assert response.read(1) == b""
+        wait_until(exported)
         bridge.configureUsbip(0)
         assert not bridge.usbipMode
         wait_until(lambda: bridge.running)

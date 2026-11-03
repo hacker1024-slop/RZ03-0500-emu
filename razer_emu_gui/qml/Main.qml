@@ -73,7 +73,12 @@ ApplicationWindow {
             Button { text: "USB/IP…"; onClicked: usbipDialog.open() }
             Button { text: "Load firmware"; onClicked: loadMenu.popup() }
             Button { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
-            Button { enabled: !emulator.usbipMode; text: "Reset"; onClicked: emulator.reset() }
+            Button {
+                text: "Reset"
+                onClicked: emulator.reset()
+                ToolTip.visible: hovered && emulator.usbipMode
+                ToolTip.text: "Restart firmware and disconnect any USB/IP guest"
+            }
         }
         Item {
             id: viewport

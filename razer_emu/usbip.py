@@ -64,7 +64,7 @@ class UsbIpServer:
         if len(self.interfaces) != configuration[4]:
             raise ValueError("Configuration interface count mismatch")
         self._imported = False
-        self._clients = set()
+        self._clients = {}
 
     def _device_record(self):
         device = self.enumeration.device
@@ -92,21 +92,27 @@ class UsbIpServer:
 
     async def serve(self, address="127.0.0.1", port=3240):
         """Serve until cancelled; close clients before returning."""
-        server = await asyncio.start_server(
-            self._client, address, port, limit=MAX_TRANSFER + 48
-        )
+        def accept(reader, writer):
+            task = asyncio.create_task(self._client(reader, writer))
+            self._clients[task] = writer
+            task.add_done_callback(lambda finished: self._clients.pop(finished, None))
+
+        server = await asyncio.start_server(accept, address, port, limit=MAX_TRANSFER + 48)
         try:
-            async with server:
-                await server.serve_forever()
+            # Close guest transports before waiting for server shutdown.
+            await asyncio.Future()
         finally:
-            tasks = tuple(self._clients)
-            for task in tasks:
+            server.close()
+            clients = tuple(self._clients.items())
+            for task, writer in clients:
+                writer.close()
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*(task for task, _ in clients), return_exceptions=True)
+            await server.wait_closed()
 
     async def _client(self, reader, writer):
         task = asyncio.current_task()
-        self._clients.add(task)
+        self._clients[task] = writer
         imported = False
         try:
             version, operation, status = struct.unpack(
@@ -146,7 +152,8 @@ class UsbIpServer:
                 await writer.wait_closed()
             except ConnectionError:
                 pass
-            self._clients.discard(task)
+            finally:
+                self._clients.pop(task, None)
 
     @staticmethod
     def _reply(writer, sequence, status=0, data=b"", *, actual=None, unlink=False):

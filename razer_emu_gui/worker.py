@@ -96,14 +96,22 @@ async def run(configuration):
                 backend.Add(address, address & 15, size, 0, size, interval)
             return backend
 
-        if not exported:
-            pump = start_polling()
-        server = transport = None
-        if exported:
+        def start_export():
             from razer_emu.usbip import UsbIpServer
 
             server = UsbIpServer(keyboard, enumeration)
-            transport = asyncio.create_task(server.serve(port=exported))
+            return server, asyncio.create_task(server.serve(port=exported))
+
+        async def stop_export():
+            if transport is not None:
+                transport.cancel()
+                await asyncio.gather(transport, return_exceptions=True)
+
+        server = transport = None
+        if exported:
+            server, transport = start_export()
+        else:
+            pump = start_polling()
         wheel_phases = deque()
         next_phase = 0
         held, releases = {}, {}
@@ -140,16 +148,18 @@ async def run(configuration):
                 command = commands.get_nowait()
                 kind = command["type"]
                 if kind == "quit":
-                    if transport:
-                        transport.cancel()
-                        await asyncio.gather(transport, return_exceptions=True)
+                    await stop_export()
                     return
-                if kind == "reset" and not exported:
+                if kind == "reset":
+                    await stop_export()
                     release_all()
                     clear_wheel()
                     keyboard.reset()
                     enumeration = keyboard.usb.enumerate_device()
-                    pump = start_polling()
+                    if exported:
+                        server, transport = start_export()
+                    else:
+                        pump = start_polling()
                     report = ""
                     running = True
                 elif kind == "running" and not exported:

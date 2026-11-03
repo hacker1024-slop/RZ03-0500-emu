@@ -109,7 +109,8 @@ Open **USB/IP…** to enable or disable export and choose the loopback port
 restarts loaded firmware and disconnects any attached guest. The GUI shows
 the configured endpoint and bus ID. Firmware continues running while waiting
 for a guest. An attached guest owns USB endpoint polling. The GUI disables
-pause and reset while export is enabled.
+pause while export is enabled. Reset disconnects any attached guest, reboots
+the keyboard, and resumes listening on the same port.
 
 `python -m razer_emu_gui` is equivalent. The key and RGB map describes the BlackWidow V4 75% ANSI hardware. Both
 firmware 1.1.1 and 1.2.1 use the same map. The GUI accepts structurally valid
