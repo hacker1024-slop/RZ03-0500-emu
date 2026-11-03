@@ -5,34 +5,22 @@ import json
 import sys
 from collections import deque
 from importlib.resources import files
-from pathlib import Path
 
-from PySide6.QtCore import Property, QObject, QProcess, QStandardPaths, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, QProcess, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
 from .layout import load_layout
-from .photo import keyboard_photo
 
 
 class EmulatorBridge(QObject):
     changed = Signal()
     usbReport = Signal(int, str)
 
-    def __init__(self, configuration, background=None):
+    def __init__(self, configuration):
         super().__init__()
         self.layout = load_layout()
         self.configuration = configuration
-        photo = (
-            Path(background)
-            if background
-            else keyboard_photo(
-                QStandardPaths.writableLocation(QStandardPaths.StandardLocation.CacheLocation)
-            )
-        )
-        if not photo.is_file():
-            raise ValueError(f"Keyboard photo does not exist: {photo}")
-        self._background = QUrl.fromLocalFile(str(photo.resolve()))
         self._colors = {}
         self._pressed = []
         self._running = False
@@ -48,6 +36,14 @@ class EmulatorBridge(QObject):
         self._process.errorOccurred.connect(self._process_error)
         self._process.finished.connect(self._finished)
 
+    @Property(int, constant=True)
+    def boardWidth(self):
+        return self.layout["width"]
+
+    @Property(int, constant=True)
+    def boardHeight(self):
+        return self.layout["height"]
+
     @Property(bool, constant=True)
     def usbipMode(self):
         return bool(self.configuration.get("usbip"))
@@ -55,10 +51,6 @@ class EmulatorBridge(QObject):
     @Property("QVariantList", constant=True)
     def keys(self):
         return self.layout["keys"]
-
-    @Property(QUrl, constant=True)
-    def background(self):
-        return self._background
 
     @Property("QVariantMap", notify=changed)
     def colors(self):
@@ -231,7 +223,6 @@ def main(argv=None):
         metavar="PORT",
         help="Export USB to a guest instead of consuming reports locally",
     )
-    parser.add_argument("--background", help="Optional aligned 750×420 keyboard image")
     args = parser.parse_args(argv)
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be between 1 and 65535")
@@ -244,9 +235,9 @@ def main(argv=None):
         "usbip": args.usbip,
     }
     try:
-        bridge = EmulatorBridge(configuration, args.background)
+        bridge = EmulatorBridge(configuration)
     except (OSError, ValueError) as exc:
-        parser.error(f"Could not load keyboard photograph: {exc}")
+        parser.error(f"Could not load keyboard layout: {exc}")
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("emulator", bridge)
     engine.load(QUrl.fromLocalFile(str(files("razer_emu_gui").joinpath("qml/Main.qml"))))

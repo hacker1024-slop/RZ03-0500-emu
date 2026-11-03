@@ -56,10 +56,10 @@ ApplicationWindow {
                 anchors.fill: parent; anchors.margins: 10
                 Item {
                     id: board
-                    width: 750; height: 420
+                    width: emulator.boardWidth; height: emulator.boardHeight
                     scale: Math.min(viewport.width / width, viewport.height / height)
                     anchors.centerIn: parent
-                    Image { anchors.fill: parent; source: emulator.background; fillMode: Image.Stretch; smooth: true }
+                    Image { anchors.fill: parent; source: "../assets/keyboard-unlit.png"; fillMode: Image.Stretch; smooth: true }
                     Repeater {
                         model: emulator.keys
                         delegate: Rectangle {
@@ -105,7 +105,7 @@ ApplicationWindow {
             Label { text: "VIRTUAL TIME  " + emulator.virtualTime + "  ·  " + emulator.speed; color: "#8195aa"; font.family: "monospace" }
         }
         Label { text: emulator.captureSummary; color: "#8195aa"; font.pixelSize: 11 }
-        Label { text: "Click to press · Live RGB is shown by key indicators · Photo lighting is decorative"; color: "#8195aa"; font.pixelSize: 12 }
+        Label { text: "Click to press · Live RGB is shown by key indicators"; color: "#8195aa"; font.pixelSize: 12 }
         Rectangle {
             Layout.fillWidth: true; height: 44
             color: "#101a26"; radius: 8

@@ -105,7 +105,7 @@ Add `--usbip 3240` to export the GUI's keyboard to a guest through the loopback 
 
 `python -m razer_emu_gui` is equivalent. Add repeated `--flash-dump` arguments for the verified application/settings regions and `--bootloader-dump DIRECTORY` for a complete bootloader capture. The window also has **Captures** and **Open firmware** controls. Original firmware needs its initialized settings; an application file alone may fault. The supplied key/RGB map targets application 1.1.1 with the documented SHA-256 and the ANSI physical layout; other images are rejected rather than assigned a guessed map.
 
-The keyboard background is an actual top-view Razer product photograph, downloaded from Razer's asset server on first launch and cached locally with an integrity check. It is not included in the MIT source or distributions. Use `--background /path/to/photo.png` to supply the aligned 750×420 image offline. Its printed lighting is decorative: the overlaid colour indicators and translucent key highlights show the emulated controller output.
+The GUI bundles an AI-generated image of the unlit keyboard. The overlaid colour indicators and translucent key highlights show the emulated controller output.
 
 Click a key to press it and release the mouse to lift it. Short clicks last at least 40 ms of virtual time for firmware debounce; visible feedback may lag wall time when emulation is slow. Releasing outside a key, focus loss and pausing release contacts. The UI displays virtual time and firmware-produced USB input reports, with pause/resume and reset controls. Renode executes in a separate owning process, keeping GUI rendering independent of firmware execution.
 

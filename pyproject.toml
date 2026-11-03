@@ -25,7 +25,7 @@ include = ["razer_emu", "razer_emu_cli", "razer_emu_gui"]
 
 [tool.setuptools.package-data]
 razer_emu = ["platforms/*.repl", "platforms/*.cs"]
-razer_emu_gui = ["qml/*.qml", "assets/*.json", "assets/*.svg"]
+razer_emu_gui = ["qml/*.qml", "assets/*.json", "assets/*.svg", "assets/*.png"]
 
 [tool.ruff]
 line-length = 100

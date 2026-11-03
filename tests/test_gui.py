@@ -12,9 +12,8 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
         pytest.skip("Pass --run-engine for the GUI/firmware integration test")
     firmware = os.environ.get("RAZER_TEST_FIRMWARE")
     dumps = os.environ.get("RAZER_TEST_FLASH_DUMPS")
-    photo = os.environ.get("RAZER_TEST_KEYBOARD_PHOTO")
-    if not firmware or not dumps or not photo:
-        pytest.skip("Supply private firmware, flash captures and a local keyboard photo")
+    if not firmware or not dumps:
+        pytest.skip("Supply private firmware, flash captures")
     pytest.importorskip("PySide6")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
     monkeypatch.setenv("QT_QUICK_BACKEND", "software")
@@ -33,7 +32,6 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
             "flash_dumps": dumps.split(os.pathsep),
             "bootloader": os.environ.get("RAZER_TEST_BOOTLOADER_DUMP"),
         },
-        photo,
     )
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("emulator", bridge)
