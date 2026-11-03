@@ -1,11 +1,13 @@
 """Photo hit regions, electrical maps and LED channel interpretation."""
 
 import os
+import re
 
 import pytest
 
-from razer_emu import Firmware, LightingState
+from razer_emu import LightingState
 from razer_emu_gui.layout import key_colors, load_layout
+from razer_emu_gui.worker import load_images
 
 
 def test_ansi_layout_has_unique_contacts_and_photo_hit_regions():
@@ -47,17 +49,23 @@ def test_private_firmware_matches_every_gui_contact_and_rgb_record():
     path = os.environ.get("RAZER_TEST_FIRMWARE")
     if not path:
         pytest.skip("Set private firmware to verify the recovered map")
-    firmware = Firmware.load(path)
+    firmware, _, _ = load_images({"firmware": path, "flash_dumps": []})
     layout = load_layout()
-    assert firmware.sha256 == layout["firmware_sha256"]
-    scan = firmware.image[0x14F30:0x14FB0]
+    contacts = {}
+    led_fields = {}
     for key in layout["keys"]:
         if key["matrix"] is not None:
             row, col = key["matrix"]
-            assert scan[row * 16 + col] == key["key_id"]
+            contacts[row * 16 + col] = key["key_id"]
         row, col = key["led_slot"]
-        offset = 0x15772 + (row * 18 + col) * 7
-        record = firmware.image[offset : offset + 7]
-        assert record[0] == key["key_id"]
-        assert record[3] == key["controller"]
-        assert list(record[4:]) == key["rgb"]
+        offset = (row * 18 + col) * 7
+        led_fields[offset] = key["key_id"]
+        for index, value in enumerate([key["controller"], *key["rgb"]], start=3):
+            led_fields[offset + index] = value
+
+    for fields in (contacts, led_fields):
+        pattern = b"".join(
+            re.escape(bytes([fields[i]])) if i in fields else b"."
+            for i in range(max(fields) + 1)
+        )
+        assert len(list(re.finditer(pattern, firmware.image, re.DOTALL))) == 1

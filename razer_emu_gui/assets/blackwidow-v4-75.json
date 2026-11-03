@@ -2,8 +2,6 @@
   "model": "BlackWidow V4 75% ANSI",
   "width": 1455,
   "height": 784,
-  "firmware_size": 97280,
-  "firmware_sha256": "85813c29d04bf853a1eef07fd3e5744c50c9e434e9c3f0c4feb0663b8f549ad1",
   "controllers": [
     {
       "bus": 4,

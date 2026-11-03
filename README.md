@@ -103,9 +103,9 @@ razer-emu-gui application.bin --flash-dump ./settings-capture
 
 Add `--usbip 3240` to export the GUI's keyboard to a guest through the loopback USB/IP server described below. Clicking keys then changes the same device imported by the guest. The guest owns USB endpoint polling in this mode; pause and reset are disabled in this mode.
 
-`python -m razer_emu_gui` is equivalent. The key and RGB map targets application
-firmware 1.1.1 and the ANSI physical layout. The GUI checks the application hash
-before running it.
+`python -m razer_emu_gui` is equivalent. The key and RGB map describes the BlackWidow V4 75% ANSI hardware. Both
+firmware 1.1.1 and 1.2.1 use the same map. The GUI accepts structurally valid
+application images for this board.
 
 The **Load firmware** menu offers application only, bootloader and application,
 or a complete raw 512 KiB flash image. For the two-file option, select the raw
@@ -115,7 +115,7 @@ bootloader at offset 0 and the application at offset `0x8000`.
 From the command line, pass an application as the positional argument, add
 `--bootloader-dump` for a raw bootloader or verified capture folder, or pass
 `--full-image flash.bin` by itself. In the first two modes, the GUI generates
-blank, ECC-valid settings in emulated flash. Firmware 1.1.1 can start with its
+blank, ECC-valid settings in emulated flash. Firmware 1.1.1 and 1.2.1 can start with their
 defaults from this state. Optional `--flash-dump` captures override those bytes.
 Complete images supply their own settings.
 

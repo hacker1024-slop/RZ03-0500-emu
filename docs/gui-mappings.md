@@ -1,16 +1,16 @@
 # BlackWidow V4 75% GUI mappings
 
-The included map targets ANSI layout 1 and installed application 1.1.1, SHA-256 `85813c29d04bf853a1eef07fd3e5744c50c9e434e9c3f0c4feb0663b8f549ad1`. These are recovered configuration facts, not redistributed firmware or manufacturer application code. Other firmware/layout combinations are not automatically assigned this map.
+The included map describes the ANSI layout of the BlackWidow V4 75%. The matrix and RGB records match both the 1.1.1 capture and the 1.2.1 updater application. The GUI uses the hardware map independently of firmware version.
 
 ## Inputs
 
-The original application's table at SRAM address `0x20014F30` contains eight rows of sixteen scan IDs. The GUI joins physical key names to IDs using the captured default HID bindings and the ANSI legends, then locates each ID in that scan table. For example A is ID `0x1F`, electrical contact `(3,1)`. The GUI does not inject HID packets: input changes the modeled diode matrix and original firmware debounces it and generates USB reports. Fn is an actual matrix contact, not a synthesized modifier.
+The application's table at SRAM address `0x20014F30` in 1.1.1 and `0x20014E74` in 1.2.1 contains eight rows of sixteen scan IDs. The GUI joins physical key names to IDs using the captured default HID bindings and the ANSI legends, then locates each ID in that scan table. For example A is ID `0x1F`, electrical contact `(3,1)`. The GUI does not inject HID packets: input changes the modeled diode matrix and original firmware debounces it and generates USB reports. Fn is an actual matrix contact, not a synthesized modifier.
 
 The independent buttons use GPIO1 pins 28 and 26, mapped by firmware to IDs `0xC8` and `0xF9`. They are displayed as mute and media play/pause using the manufacturer's control labels. Their actions remain firmware/profile dependent.
 
 ## RGB
 
-At `0x20015772`, the application stores seven-byte records in seven groups of eighteen slots. Fields are key ID, two effect-position coordinates, controller index, and three PWM channel offsets. The routine near `0x20008664` uses the last three fields for RGB writes into each controller's 192-byte buffer. The effect-position coordinates are not interchangeable with scan contacts or host LED-frame columns.
+At `0x20015772` in 1.1.1 and `0x200156B6` in 1.2.1, the application stores seven-byte records in seven groups of eighteen slots. Fields are key ID, two effect-position coordinates, controller index, and three PWM channel offsets. The routine near `0x20008664` uses the last three fields for RGB writes into each controller's 192-byte buffer. The effect-position coordinates are not interchangeable with scan contacts or host LED-frame columns.
 
 The controller address bytes at `0x20014F00` begin `A0 BE A6`: 7-bit addresses `0x50`, `0x5F`, `0x53` on Flexcomm4. The GUI attaches these compatible lighting models; the third supports the board's underglow. Per-key RGB uses the first two. A uses controller 0 and channels `(161,145,177)` in red/green/blue order. Existing firmware-driven static-green snapshots independently show its green channel enabled while its red/blue channels are zero.
 

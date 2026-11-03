@@ -10,7 +10,7 @@ from pathlib import Path
 
 from razer_emu import Bootloader, Firmware, FlashRegion
 from razer_emu.core import Keyboard
-from razer_emu.firmware import FLASH_APPLICATION
+from razer_emu.firmware import FLASH_APPLICATION, SRAM_SIZE
 
 from .layout import key_colors, load_layout
 
@@ -19,7 +19,7 @@ def emit(message):
     print(json.dumps(message), flush=True)
 
 
-def load_images(configuration, layout):
+def load_images(configuration):
     full_image = configuration.get("full_image")
     if full_image:
         with Path(full_image).open("rb") as source:
@@ -27,7 +27,9 @@ def load_images(configuration, layout):
         if len(data) != 0x80000:
             raise ValueError("Expected a complete raw 512 KiB flash image")
         boot = Bootloader.from_bytes(data[:FLASH_APPLICATION])
-        application_end = FLASH_APPLICATION + layout["firmware_size"]
+        # Validate the application vectors within the maximum SRAM image span.
+        # In cold boot the bootloader determines what to copy from flash.
+        application_end = FLASH_APPLICATION + SRAM_SIZE
         image = Firmware.from_bytes(data[FLASH_APPLICATION:application_end])
         regions = [FlashRegion(0, data, b"\x01" * len(data))]
     else:
@@ -45,14 +47,12 @@ def load_images(configuration, layout):
             if start < end:
                 blank_mask[start - settings_start:end - settings_start] = bytes(end - start)
         regions.insert(0, FlashRegion(settings_start, bytes(len(blank_mask)), blank_mask))
-    if image.sha256 != layout["firmware_sha256"]:
-        raise ValueError("This key/RGB map is verified only for application firmware 1.1.1")
     return image, boot, regions
 
 
 async def run(configuration):
     layout = load_layout()
-    image, boot, regions = load_images(configuration, layout)
+    image, boot, regions = load_images(configuration)
     commands = queue.Queue()
 
     def receive():
