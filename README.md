@@ -124,7 +124,7 @@ Complete images supply their own settings.
 
 The GUI bundles an AI-generated image of the unlit keyboard. The overlaid colour indicators and translucent key highlights show the emulated controller output.
 
-Click a key to press it and release the mouse to lift it. Short clicks last at least 40 ms of virtual time for firmware debounce; visible feedback may lag wall time when emulation is slow. Releasing outside a key, focus loss and pausing release contacts. The UI displays virtual time and firmware-produced USB input reports, with pause/resume and reset controls. Renode executes in a separate owning process, keeping GUI rendering independent of firmware execution.
+Left-click a key for a momentary press. Right-click to hold it down, then right-click again to release it. Toggled keys stay held when the window loses focus and release on pause or reset. Short clicks last at least 40 ms of virtual time for firmware debounce; visible feedback may lag wall time when emulation is slow. Releasing outside a key or losing focus releases momentary presses. The UI displays virtual time and firmware-produced USB input reports, with pause/resume and reset controls. Renode executes in a separate owning process, keeping GUI rendering independent of firmware execution.
 
 The mapping includes 81 ANSI matrix keys and the two independent media buttons. Key IDs, matrix contacts and RGB channels come from firmware tables; the background and hit-region alignment come from Razer's published ANSI product assets. [Mapping provenance and validation](docs/gui-mappings.md) describes the sources and limits. No physical keyboard access is required.
 

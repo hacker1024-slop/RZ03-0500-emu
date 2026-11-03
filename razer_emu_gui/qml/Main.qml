@@ -90,8 +90,19 @@ ApplicationWindow {
                             anchors.fill: parent
                             hoverEnabled: true
                             enabled: emulator.running
-                            onPressed: emulator.key(keyItem.index, true)
-                            onReleased: emulator.key(keyItem.index, false)
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onPressed: mouse => {
+                                if (mouse.button === Qt.LeftButton)
+                                    emulator.key(keyItem.index, true)
+                            }
+                            onReleased: mouse => {
+                                if (mouse.button === Qt.LeftButton)
+                                    emulator.key(keyItem.index, false)
+                            }
+                            onClicked: mouse => {
+                                if (mouse.button === Qt.RightButton)
+                                    emulator.toggleKey(keyItem.index)
+                            }
                             onCanceled: emulator.key(keyItem.index, false)
                         }
                     }

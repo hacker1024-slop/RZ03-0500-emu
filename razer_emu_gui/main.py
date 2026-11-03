@@ -96,6 +96,10 @@ class EmulatorBridge(QObject):
     def key(self, index, pressed):
         self._send({"type": "key", "index": index, "pressed": pressed})
 
+    @Slot(int)
+    def toggleKey(self, index):
+        self._send({"type": "toggle_key", "index": index})
+
     @Slot()
     def releaseAll(self):
         self._send({"type": "release_all"})

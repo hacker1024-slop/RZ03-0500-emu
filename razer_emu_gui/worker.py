@@ -96,6 +96,7 @@ async def run(configuration):
 
             transport = asyncio.create_task(UsbIpServer(keyboard, enumeration).serve(port=exported))
         held, releases = {}, {}
+        momentary, latched = set(), set()
         running = True
         report = ""
         last_frame = 0.0
@@ -108,11 +109,14 @@ async def run(configuration):
             else:
                 buttons.set_pressed(key["button"], pressed)
 
-        def release_all():
-            for index in held:
+        def release_all(*, keep_latched=False):
+            momentary.clear()
+            if not keep_latched:
+                latched.clear()
+            for index in held.keys() - latched:
                 contact(index, False)
-            held.clear()
-            releases.clear()
+                del held[index]
+                releases.pop(index, None)
 
         while True:
             while not commands.empty():
@@ -135,12 +139,18 @@ async def run(configuration):
                     if not running:
                         release_all()
                 elif kind == "release_all":
-                    release_all()
-                elif kind == "key" and running:
+                    release_all(keep_latched=True)
+                elif kind in ("key", "toggle_key") and running:
                     index = command["index"]
                     if type(index) is not int or not 0 <= index < len(layout["keys"]):
                         raise ValueError("Key outside the selected layout")
-                    if command["pressed"]:
+                    if kind == "toggle_key":
+                        latched.symmetric_difference_update((index,))
+                    elif command["pressed"]:
+                        momentary.add(index)
+                    else:
+                        momentary.discard(index)
+                    if index in momentary or index in latched:
                         if index not in held:
                             contact(index, True)
                             held[index] = keyboard.state().elapsed_us

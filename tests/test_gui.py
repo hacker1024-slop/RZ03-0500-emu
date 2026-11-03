@@ -70,6 +70,20 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
         press = (0x81, "0000040000000000")
         release = (0x81, "0000000000000000")
         wait_until(lambda: press in reports and release in reports[reports.index(press) + 1 :])
+        reports.clear()
+        QTest.mouseClick(
+            window, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, position
+        )
+        wait_until(lambda: press in reports and key.property("held"))
+        QTest.mouseClick(
+            window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, position
+        )
+        QTest.qWait(200)
+        assert release not in reports
+        QTest.mouseClick(
+            window, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, position
+        )
+        wait_until(lambda: release in reports and not key.property("held"))
         assert len(bridge.colors) == 83
         bridge.toggleRunning()
         wait_until(lambda: not bridge.running)
