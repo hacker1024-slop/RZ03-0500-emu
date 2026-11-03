@@ -81,6 +81,7 @@ async def run(configuration):
         buttons = keyboard.attach_buttons()
         encoder = keyboard.attach_encoder()
         chips = [keyboard.attach_lighting(c["bus"], c["address"]) for c in layout["controllers"]]
+        bootloader_mode = False
         enumeration = keyboard.usb.enumerate_device()
         exported = configuration.get("usbip")
         limit_speed = configuration.get("limit_speed", True)
@@ -171,8 +172,16 @@ async def run(configuration):
                     await stop_export()
                     release_all()
                     clear_wheel()
-                    keyboard.reset()
-                    enumeration = keyboard.usb.enumerate_device()
+                    bootloader_mode = command.get("bootloader_mode", False)
+                    if bootloader_mode:
+                        enumeration = keyboard.boot_into_bootloader()
+                    else:
+                        keyboard.reset()
+                        enumeration = keyboard.usb.enumerate_device()
+                    endpoints = {
+                        address: (size, interval)
+                        for address, size, interval in enumeration.interrupt_inputs
+                    }
                     if exported:
                         server, transport = start_export()
                     else:
@@ -263,6 +272,7 @@ async def run(configuration):
                     {
                         "type": "frame",
                         "running": running,
+                        "bootloader_mode": bootloader_mode,
                         "virtual_us": state.elapsed_us,
                         "wall_seconds": now,
                         "colors": key_colors(layout, [c.state() for c in chips]),

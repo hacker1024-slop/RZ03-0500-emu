@@ -145,10 +145,36 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
                 before = virtual_seconds()
                 wait_until(lambda: virtual_seconds() >= before + 0.2)
                 assert virtual_seconds() - before <= time.monotonic() - started + 0.06
-                bridge.reset()
+                if bridge.canResetIntoBootloader:
+                    menu_button = find_item(window.contentItem(), "resetMenuButton")
+                    assert menu_button is not None
+                    menu_position = menu_button.mapToScene(
+                        QPointF(menu_button.width() / 2, menu_button.height() / 2)
+                    ).toPoint()
+                    QTest.mouseClick(
+                        window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                        menu_position,
+                    )
+                    wait_until(lambda: find_item(window.contentItem(), "resetIntoBootloader"))
+                    reset_button = find_item(window.contentItem(), "resetIntoBootloader")
+                    assert reset_button is not None and reset_button.isEnabled()
+                    reset_position = reset_button.mapToScene(
+                        QPointF(reset_button.width() / 2, reset_button.height() / 2)
+                    ).toPoint()
+                    QTest.mouseClick(
+                        window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                        reset_position,
+                    )
+                    wait_until(lambda: bridge.status == "Running Razer bootloader")
+                else:
+                    bridge.reset()
                 wait_until(lambda: bool(select.select([guest], [], [], 0)[0]))
                 assert response.read(1) == b""
         wait_until(exported)
+        if bridge.canResetIntoBootloader:
+            bridge.reset()
+            wait_until(lambda: bridge.status == "Running original firmware")
+            wait_until(exported)
         bridge.configureUsbip(0)
         assert not bridge.usbipMode
         wait_until(lambda: bridge.running)

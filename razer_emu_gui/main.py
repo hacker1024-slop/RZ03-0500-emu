@@ -196,6 +196,17 @@ class EmulatorBridge(QObject):
         else:
             self.start()
 
+    @Property(bool, notify=changed)
+    def canResetIntoBootloader(self):
+        return bool(self.configuration.get("bootloader") or self.configuration.get("full_image")) and (
+            self._running or self._status == "Paused"
+        )
+
+    @Slot()
+    def resetIntoBootloader(self):
+        if self.canResetIntoBootloader:
+            self._send({"type": "reset", "bootloader_mode": True})
+
     @Slot()
     def close(self):
         if self._process.state() != QProcess.ProcessState.NotRunning:
@@ -239,7 +250,12 @@ class EmulatorBridge(QObject):
                             f"{(virtual - first_virtual) / 1_000_000 / (wall - first_wall):.2f}×"
                         )
                 self._report = message["report"] or "No USB input reports yet"
-                self._status = "Running original firmware" if self._running else "Paused"
+                if not self._running:
+                    self._status = "Paused"
+                elif message["bootloader_mode"]:
+                    self._status = "Running Razer bootloader"
+                else:
+                    self._status = "Running original firmware"
             self.changed.emit()
 
     def _stderr(self):

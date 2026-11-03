@@ -79,10 +79,21 @@ ApplicationWindow {
             Button { text: "Load firmware"; onClicked: loadMenu.popup() }
             Button { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
             Button {
+                objectName: "resetMenuButton"
                 text: "Reset"
-                onClicked: emulator.reset()
+                onClicked: resetMenu.popup()
                 ToolTip.visible: hovered && emulator.usbipMode
-                ToolTip.text: "Restart firmware and disconnect any USB/IP guest"
+                ToolTip.text: "Resetting disconnects any USB/IP guest"
+                Menu {
+                    id: resetMenu
+                    MenuItem { text: "Normal startup"; onTriggered: emulator.reset() }
+                    MenuItem {
+                        objectName: "resetIntoBootloader"
+                        text: "Bootloader mode"
+                        enabled: emulator.canResetIntoBootloader
+                        onTriggered: emulator.resetIntoBootloader()
+                    }
+                }
             }
         }
         Item {

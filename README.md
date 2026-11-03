@@ -128,6 +128,20 @@ blank, ECC-valid settings in emulated flash. Firmware 1.1.1 and 1.2.1 can start 
 defaults from this state. Optional `--flash-dump` captures override those bytes.
 Complete images supply their own settings.
 
+Use **Reset → Bootloader mode** with a bootloader and application or a complete
+flash image loaded. It holds the emulated Fn contact through startup and
+enumerates the Razer update device (`1532:110e`). **Reset → Normal startup** returns to the application. Both actions disconnect any USB/IP guest so it can reattach to the
+new USB device.
+
+The headless CLI accepts the same recovery mode:
+
+```sh
+python -m razer_emu_cli application.bin --bootloader-dump bootloader.bin --bootloader-mode
+```
+
+The flag automatically enumerates the update device and also works with
+`--usbip 3240`.
+
 The GUI bundles an AI-generated image of the unlit keyboard. The overlaid colour indicators and translucent key highlights show the emulated controller output.
 
 Click the top half of the pictured volume wheel for volume up or the bottom half for volume down. The firmware decodes the electrical phases and applies its active profile. Left-click a key for a momentary press. Right-click to hold it down, then right-click again to release it. Toggled keys stay held when the window loses focus and release on pause or reset. Short clicks last at least 40 ms of virtual time for firmware debounce; visible feedback may lag wall time when emulation is slow. Releasing outside a key or losing focus releases momentary presses. The **Limit to 1×** checkbox is enabled by default and paces emulation against wall time in the GUI and over USB/IP. The UI displays virtual time and firmware-produced USB input reports, with pause/resume and reset controls. Renode executes in a separate owning process, keeping GUI rendering independent of firmware execution.

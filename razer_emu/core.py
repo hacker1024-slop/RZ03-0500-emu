@@ -7,7 +7,7 @@ from uuid import uuid4
 from .firmware import FLASH_APPLICATION, RUNTIME_BASE, Bootloader, Firmware
 from .lighting import LightingController
 from .matrix import COLUMN_PINS, ROW_PINS, Matrix
-from .usb import UsbHost
+from .usb import UsbError, UsbHost
 
 
 @dataclass(frozen=True)
@@ -306,6 +306,24 @@ class Keyboard:
         self._reason = None
         self._initial_reads = self._bus.UnexpectedReads
         self._initial_writes = self._bus.UnexpectedWrites
+
+    def boot_into_bootloader(self):
+        """Reset with the recovery contact held and enumerate the Razer loader."""
+        if self.bootloader is None:
+            raise ValueError("Bootloader mode requires a complete Razer bootloader")
+        self.reset()
+        matrix = self.matrix or self.attach_matrix()
+        # The board's Fn contact is sampled by the loader during recovery scan.
+        recovery = (5, 8)
+        was_pressed = recovery in matrix.pressed
+        matrix.press(*recovery)
+        try:
+            enumeration = self.usb.enumerate_device()
+        finally:
+            matrix.set_key(*recovery, was_pressed)
+        if enumeration.device[8:12] != bytes.fromhex("32150e11"):
+            raise UsbError("Expected the Razer bootloader USB device (1532:110e)")
+        return enumeration
 
     def prepare_input_script(self, script):
         """Attach required inputs before execution, returning a startable playback."""

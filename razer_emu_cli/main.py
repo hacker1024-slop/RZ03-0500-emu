@@ -49,8 +49,12 @@ def main(argv=None):
     )
     parser.add_argument(
         "--bootloader-dump",
-        metavar="DIRECTORY",
-        help="Start from a complete verified bootloader capture instead of the application handoff",
+        metavar="PATH",
+        help="Start from a complete bootloader binary or verified capture directory",
+    )
+    parser.add_argument(
+        "--bootloader-mode", action="store_true",
+        help="Hold Fn through reset and enumerate the Razer update-mode USB device",
     )
     parser.add_argument(
         "--flash-dump",
@@ -68,6 +72,8 @@ def main(argv=None):
         help="Attach a CHROMA 192-compatible I2C target, e.g. 4:0x50 (repeatable)",
     )
     args = parser.parse_args(argv)
+    if args.bootloader_mode and not args.bootloader_dump:
+        parser.error("--bootloader-mode requires --bootloader-dump")
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be 1 to 65535")
     if args.check_interval_us is not None and not 1 <= args.check_interval_us <= 1000:
@@ -84,7 +90,7 @@ def main(argv=None):
         with Keyboard(
             image,
             flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump],
-            bootloader=Bootloader.load_dump(args.bootloader_dump) if args.bootloader_dump else None,
+            bootloader=Bootloader.load(args.bootloader_dump) if args.bootloader_dump else None,
             check_interval_us=(
                 args.check_interval_us
                 if args.check_interval_us is not None
@@ -95,10 +101,12 @@ def main(argv=None):
         ) as keyboard:
             playback = keyboard.prepare_input_script(script) if script else None
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
+            enumerate_device = (keyboard.boot_into_bootloader if args.bootloader_mode
+                                else keyboard.usb.enumerate_device)
             if args.usbip is not None:
                 from razer_emu.usbip import UsbIpServer
 
-                enumeration = keyboard.usb.enumerate_device()
+                enumeration = enumerate_device()
                 if playback:
                     playback.start()
                 print(f"USB/IP listening on 127.0.0.1:{args.usbip}, bus ID 1-1", file=sys.stderr)
@@ -109,8 +117,8 @@ def main(argv=None):
                 return 0
             usb = usb_error = enumeration = None
             try:
-                if args.usb_enumerate:
-                    enumeration = keyboard.usb.enumerate_device()
+                if args.usb_enumerate or args.bootloader_mode:
+                    enumeration = enumerate_device()
                     usb = enumeration.to_dict()
             except UsbError as exc:
                 usb_error = str(exc)
