@@ -8,8 +8,7 @@ ApplicationWindow {
     width: 1220; height: 790
     minimumWidth: 850; minimumHeight: 620
     visible: true
-    color: "#0b1119"
-    title: "BlackWidow · Firmware emulator"
+    title: "BlackWidow Firmware Emulator"
     onActiveChanged: if (!active) emulator.releaseAll()
     FileDialog {
         id: firmwareDialog
@@ -32,84 +31,67 @@ ApplicationWindow {
     }
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 28
-        spacing: 16
+        anchors.margins: 12
         RowLayout {
             Layout.fillWidth: true
-            ColumnLayout {
-                spacing: 6
-                Label { text: "BLACKWIDOW"; color: "#f0f6ff"; font.pixelSize: 27; font.weight: Font.DemiBold; font.letterSpacing: 3 }
-                Label { text: "V4 75%   /   ORIGINAL FIRMWARE"; color: "#8195aa"; font.pixelSize: 11; font.letterSpacing: 2 }
-            }
             Item { Layout.fillWidth: true }
-            ActionButton { text: "Captures"; onClicked: capturesMenu.popup() }
-            ActionButton { text: "Open firmware"; onClicked: firmwareDialog.open() }
-            ActionButton { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
-            ActionButton { enabled: !emulator.usbipMode; text: "Reset"; onClicked: emulator.reset() }
+            Button { text: "Captures"; onClicked: capturesMenu.popup() }
+            Button { text: "Open firmware"; onClicked: firmwareDialog.open() }
+            Button { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
+            Button { enabled: !emulator.usbipMode; text: "Reset"; onClicked: emulator.reset() }
         }
-        Rectangle {
-            Layout.fillWidth: true; Layout.fillHeight: true
-            color: "#101a26"; radius: 18
-            border.color: "#253344"
+        Item {
+            id: viewport
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             Item {
-                id: viewport
-                anchors.fill: parent; anchors.margins: 10
-                Item {
-                    id: board
-                    width: emulator.boardWidth; height: emulator.boardHeight
-                    scale: Math.min(viewport.width / width, viewport.height / height)
-                    anchors.centerIn: parent
-                    Image { anchors.fill: parent; source: "../assets/keyboard-unlit.png"; fillMode: Image.Stretch; smooth: true }
-                    Repeater {
-                        model: emulator.keys
-                        delegate: Rectangle {
-                            id: keyItem
-                            objectName: "key_" + modelData.id
-                            required property var modelData
-                            required property int index
-                            x: modelData.x; y: modelData.y
-                            width: modelData.width; height: modelData.height
-                            radius: Math.min(5, height / 2)
-                            property color ledColor: emulator.colors[modelData.id] || "#000000"
-                            property bool held: emulator.pressed.indexOf(index) !== -1
-                            color: Qt.rgba(ledColor.r, ledColor.g, ledColor.b, 0.30)
-                            border.width: held ? 2 : 0.8
-                            border.color: held ? "#ffffff" : (mouse.containsMouse ? "#90a8ba" : Qt.rgba(ledColor.r, ledColor.g, ledColor.b, 0.85))
-                            Rectangle {
-                                anchors.bottom: parent.bottom; anchors.bottomMargin: 3
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: Math.min(parent.width - 8, 15); height: 2
-                                radius: 1; color: keyItem.ledColor
-                            }
-                            ToolTip.visible: mouse.containsMouse
-                            ToolTip.delay: 650
-                            ToolTip.text: modelData.label
-                            MouseArea {
-                                id: mouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: emulator.running
-                                onPressed: emulator.key(keyItem.index, true)
-                                onReleased: emulator.key(keyItem.index, false)
-                                onCanceled: emulator.key(keyItem.index, false)
-                            }
+                id: board
+                width: emulator.boardWidth; height: emulator.boardHeight
+                scale: Math.min(viewport.width / width, viewport.height / height)
+                anchors.centerIn: parent
+                Image { anchors.fill: parent; source: "../assets/keyboard-unlit.png" }
+                Repeater {
+                    model: emulator.keys
+                    delegate: Rectangle {
+                        id: keyItem
+                        objectName: "key_" + modelData.id
+                        required property var modelData
+                        required property int index
+                        x: modelData.x; y: modelData.y
+                        width: modelData.width; height: modelData.height
+                        radius: Math.min(5, height / 2)
+                        property color ledColor: emulator.colors[modelData.id] || "#000000"
+                        property bool held: emulator.pressed.indexOf(index) !== -1
+                        color: Qt.rgba(ledColor.r, ledColor.g, ledColor.b, 0.30)
+                        border.width: held ? 2 : 0.8
+                        border.color: held ? window.palette.highlight : (mouse.containsMouse ? window.palette.mid : Qt.rgba(ledColor.r, ledColor.g, ledColor.b, 0.85))
+                        Rectangle {
+                            anchors.bottom: parent.bottom; anchors.bottomMargin: 3
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: Math.min(parent.width - 8, 15); height: 2
+                            radius: 1; color: keyItem.ledColor
+                        }
+                        ToolTip.visible: mouse.containsMouse
+                        ToolTip.text: modelData.label
+                        MouseArea {
+                            id: mouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            enabled: emulator.running
+                            onPressed: emulator.key(keyItem.index, true)
+                            onReleased: emulator.key(keyItem.index, false)
+                            onCanceled: emulator.key(keyItem.index, false)
                         }
                     }
                 }
             }
         }
         RowLayout {
-            spacing: 24
-            Rectangle { width: 7; height: 7; radius: 4; color: emulator.running ? "#8fe388" : "#8195aa" }
-            Label { text: emulator.status; color: "#d0deea"; Layout.fillWidth: true; elide: Text.ElideRight }
-            Label { text: "VIRTUAL TIME  " + emulator.virtualTime + "  ·  " + emulator.speed; color: "#8195aa"; font.family: "monospace" }
+            Layout.fillWidth: true
+            Label { text: emulator.status; Layout.fillWidth: true; elide: Text.ElideRight }
+            Label { text: emulator.virtualTime + " · " + emulator.speed }
         }
-        Label { text: emulator.captureSummary; color: "#8195aa"; font.pixelSize: 11 }
-        Label { text: "Click to press · Live RGB is shown by key indicators"; color: "#8195aa"; font.pixelSize: 12 }
-        Rectangle {
-            Layout.fillWidth: true; height: 44
-            color: "#101a26"; radius: 8
-            Label { anchors.centerIn: parent; text: "USB INPUT   " + emulator.report; color: "#a8bcd0"; font.family: "monospace"; font.pixelSize: 11 }
-        }
+        Label { text: emulator.captureSummary }
+        Label { text: "USB input: " + emulator.report }
     }
 }
