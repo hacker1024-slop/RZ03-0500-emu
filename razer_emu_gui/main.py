@@ -2,13 +2,18 @@
 
 import argparse
 import json
+import os
+import signal
+import socket
 import sys
 from collections import deque
 from importlib.resources import files
+from pathlib import Path
 
-from PySide6.QtCore import Property, QObject, QProcess, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, QProcess, QSocketNotifier, QUrl, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
+from shiboken6 import delete
 
 from .layout import load_layout
 
@@ -31,6 +36,9 @@ class EmulatorBridge(QObject):
         self._report = "No USB input reports yet"
         self._buffer = b""
         self._process = QProcess(self)
+        if os.name == "posix":
+            # The GUI owns terminal Ctrl+C and shuts the worker down over IPC.
+            self._process.setUnixProcessParameters(QProcess.UnixProcessFlag.CreateNewSession)
         self._process.readyReadStandardOutput.connect(self._read)
         self._process.readyReadStandardError.connect(self._stderr)
         self._process.errorOccurred.connect(self._process_error)
@@ -239,10 +247,32 @@ def main(argv=None):
     except (OSError, ValueError) as exc:
         parser.error(f"Could not load keyboard layout: {exc}")
     engine = QQmlApplicationEngine()
-    engine.rootContext().setContextProperty("emulator", bridge)
-    engine.load(QUrl.fromLocalFile(str(files("razer_emu_gui").joinpath("qml/Main.qml"))))
-    if not engine.rootObjects():
-        return 1
-    app.aboutToQuit.connect(bridge.close)
-    bridge.start()
-    return app.exec()
+    try:
+        engine.rootContext().setContextProperty("emulator", bridge)
+        qml_path = Path(str(files("razer_emu_gui").joinpath("qml/Main.qml"))).resolve()
+        engine.load(QUrl.fromLocalFile(str(qml_path)))
+        if not engine.rootObjects():
+            return 1
+        app.aboutToQuit.connect(bridge.close)
+        reader, writer = socket.socketpair()
+        with reader, writer:
+            reader.setblocking(False)
+            writer.setblocking(False)
+            notifier = QSocketNotifier(reader.fileno(), QSocketNotifier.Type.Read, app)
+            def handle_signal():
+                if signal.SIGINT in reader.recv(4096):
+                    app.quit()
+
+            notifier.activated.connect(handle_signal)
+            previous_handler = signal.signal(signal.SIGINT, lambda *_: None)
+            previous_fd = signal.set_wakeup_fd(writer.fileno())
+            try:
+                bridge.start()
+                return app.exec()
+            finally:
+                notifier.setEnabled(False)
+                signal.set_wakeup_fd(previous_fd)
+                signal.signal(signal.SIGINT, previous_handler)
+    finally:
+        # Destroy QML bindings while their Python context object is still alive.
+        delete(engine)
