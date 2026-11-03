@@ -114,8 +114,20 @@ class Bootloader:
             raise ValueError(
                 "Bootloader requires a fully verified 32 KiB capture at flash address zero"
             )
-        sp, reset = struct.unpack_from("<II", capture.data)
+        return cls.from_bytes(capture.data)
+
+    @classmethod
+    def load(cls, path):
+        path = Path(path)
+        return cls.load_dump(path) if path.is_dir() else cls.from_bytes(path.read_bytes())
+
+    @classmethod
+    def from_bytes(cls, image):
+        image = bytes(image)
+        if len(image) != FLASH_APPLICATION:
+            raise ValueError("Expected a raw 32 KiB bootloader")
+        sp, reset = struct.unpack_from("<II", image)
         _validate_stack(sp)
-        if not reset & 1 or not 0 <= (reset & ~1) < len(capture.data):
+        if not reset & 1 or not 0 <= (reset & ~1) < len(image):
             raise ValueError("Expected a Thumb reset vector inside the flash bootloader")
-        return cls(capture.data, sp, reset, hashlib.sha256(capture.data).hexdigest())
+        return cls(image, sp, reset, hashlib.sha256(image).hexdigest())

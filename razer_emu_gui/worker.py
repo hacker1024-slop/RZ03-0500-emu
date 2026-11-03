@@ -6,9 +6,11 @@ import queue
 import sys
 import threading
 import time
+from pathlib import Path
 
 from razer_emu import Bootloader, Firmware, FlashRegion
 from razer_emu.core import Keyboard
+from razer_emu.firmware import FLASH_APPLICATION
 
 from .layout import key_colors, load_layout
 
@@ -17,13 +19,30 @@ def emit(message):
     print(json.dumps(message), flush=True)
 
 
-async def run(configuration):
-    layout = load_layout()
-    image = Firmware.load(configuration["firmware"])
+def load_images(configuration, layout):
+    full_image = configuration.get("full_image")
+    if full_image:
+        with Path(full_image).open("rb") as source:
+            data = source.read(0x80001)
+        if len(data) != 0x80000:
+            raise ValueError("Expected a complete raw 512 KiB flash image")
+        boot = Bootloader.from_bytes(data[:FLASH_APPLICATION])
+        application_end = FLASH_APPLICATION + layout["firmware_size"]
+        image = Firmware.from_bytes(data[FLASH_APPLICATION:application_end])
+        regions = [FlashRegion(0, data, b"\x01" * len(data))]
+    else:
+        image = Firmware.load(configuration["firmware"])
+        boot_path = configuration.get("bootloader")
+        boot = Bootloader.load(boot_path) if boot_path else None
+        regions = [FlashRegion.load_dump(path) for path in configuration["flash_dumps"]]
     if image.sha256 != layout["firmware_sha256"]:
         raise ValueError("This key/RGB map is verified only for application firmware 1.1.1")
-    regions = [FlashRegion.load_dump(path) for path in configuration["flash_dumps"]]
-    boot = configuration.get("bootloader")
+    return image, boot, regions
+
+
+async def run(configuration):
+    layout = load_layout()
+    image, boot, regions = load_images(configuration, layout)
     commands = queue.Queue()
 
     def receive():
@@ -38,7 +57,7 @@ async def run(configuration):
     with Keyboard(
         image,
         flash_regions=regions,
-        bootloader=Bootloader.load_dump(boot) if boot else None,
+        bootloader=boot,
         check_interval_us=125,
     ) as keyboard:
         matrix = keyboard.attach_matrix()

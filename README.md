@@ -103,7 +103,19 @@ razer-emu-gui application.bin --flash-dump ./settings-capture
 
 Add `--usbip 3240` to export the GUI's keyboard to a guest through the loopback USB/IP server described below. Clicking keys then changes the same device imported by the guest. The guest owns USB endpoint polling in this mode; pause and reset are disabled in this mode.
 
-`python -m razer_emu_gui` is equivalent. Add repeated `--flash-dump` arguments for the verified application/settings regions and `--bootloader-dump DIRECTORY` for a complete bootloader capture. The window also has **Captures** and **Open firmware** controls. Original firmware needs its initialized settings; an application file alone may fault. The supplied key/RGB map targets application 1.1.1 with the documented SHA-256 and the ANSI physical layout; other images are rejected rather than assigned a guessed map.
+`python -m razer_emu_gui` is equivalent. The key and RGB map targets application
+firmware 1.1.1 and the ANSI physical layout. The GUI checks the application hash
+before running it.
+
+The **Load firmware** menu offers application only, bootloader and application,
+or a complete raw 512 KiB flash image. For the two-file option, select the raw
+32 KiB bootloader first and then the application. A complete image contains the
+bootloader at offset 0 and the application at offset `0x8000`.
+
+From the command line, pass an application as the positional argument, add
+`--bootloader-dump` for a raw bootloader or verified capture folder, or pass
+`--full-image flash.bin` by itself. Separate images can be supplemented with
+repeated `--flash-dump` captures.
 
 The GUI bundles an AI-generated image of the unlit keyboard. The overlaid colour indicators and translucent key highlights show the emulated controller output.
 

@@ -10,24 +10,37 @@ ApplicationWindow {
     visible: true
     title: "BlackWidow Firmware Emulator"
     onActiveChanged: if (!active) emulator.releaseAll()
+    property url pendingBootloader: ""
+
     FileDialog {
-        id: firmwareDialog
-        title: "Open application firmware"
-        nameFilters: ["Firmware images (*.bin)", "All files (*)"]
-        onAccepted: emulator.openFirmware(selectedFile)
+        id: applicationDialog
+        title: "Open application image"
+        onAccepted: emulator.loadApplication(selectedFile, window.pendingBootloader)
     }
-    FolderDialog { id: flashDialog; title: "Add a verified flash-region capture"; onAccepted: emulator.addFlashDump(selectedFolder) }
-    FolderDialog { id: bootDialog; title: "Select complete bootloader capture"; onAccepted: emulator.setBootloader(selectedFolder) }
+    FileDialog {
+        id: bootloaderDialog
+        title: "Open raw bootloader image"
+        onAccepted: {
+            window.pendingBootloader = selectedFile
+            applicationDialog.open()
+        }
+    }
+    FileDialog {
+        id: fullImageDialog
+        title: "Open complete flash image"
+        onAccepted: emulator.loadFullImage(selectedFile)
+    }
     Menu {
-        id: capturesMenu
-        MenuItem { text: "Add flash capture…"; onTriggered: flashDialog.open() }
-        MenuItem { text: "Load bootloader capture…"; onTriggered: bootDialog.open() }
-    }
-    component ActionButton: Button {
-        id: control
-        implicitWidth: 116; implicitHeight: 36
-        contentItem: Text { text: control.text; color: control.enabled ? "#d7e6f5" : "#586d80"; font.pixelSize: 12; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-        background: Rectangle { color: control.hovered ? "#28405a" : "#1a2a3d"; radius: 7; border.color: "#344b61" }
+        id: loadMenu
+        MenuItem {
+            text: "Application only…"
+            onTriggered: {
+                window.pendingBootloader = ""
+                applicationDialog.open()
+            }
+        }
+        MenuItem { text: "Bootloader and application…"; onTriggered: bootloaderDialog.open() }
+        MenuItem { text: "Complete flash image…"; onTriggered: fullImageDialog.open() }
     }
     ColumnLayout {
         anchors.fill: parent
@@ -35,8 +48,7 @@ ApplicationWindow {
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
-            Button { text: "Captures"; onClicked: capturesMenu.popup() }
-            Button { text: "Open firmware"; onClicked: firmwareDialog.open() }
+            Button { text: "Load firmware"; onClicked: loadMenu.popup() }
             Button { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
             Button { enabled: !emulator.usbipMode; text: "Reset"; onClicked: emulator.reset() }
         }

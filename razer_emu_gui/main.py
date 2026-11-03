@@ -106,34 +106,33 @@ class EmulatorBridge(QObject):
 
     @Property(str, notify=changed)
     def captureSummary(self):
-        count = len(self.configuration["flash_dumps"])
-        mode = (
-            "bootloader startup" if self.configuration.get("bootloader") else "application handoff"
-        )
-        return f"{count} flash capture(s) · {mode}"
-
-    @Slot(QUrl)
-    def addFlashDump(self, url):
-        path = url.toLocalFile()
-        if path not in self.configuration["flash_dumps"]:
-            self.configuration["flash_dumps"].append(path)
-        self.changed.emit()
-        self.start()
-
-    @Slot(QUrl)
-    def setBootloader(self, url):
-        self.configuration["bootloader"] = url.toLocalFile()
-        self.changed.emit()
-        self.start()
-
-    @Slot(QUrl)
-    def openFirmware(self, url):
-        self.configuration["firmware"] = url.toLocalFile()
-        self.start()
-
-    @Slot()
-    def start(self):
+        if self.configuration.get("full_image"):
+            return "Complete flash image"
         if not self.configuration.get("firmware"):
+            return ""
+        mode = "Bootloader and application" if self.configuration.get("bootloader") else "Application only"
+        count = len(self.configuration["flash_dumps"])
+        return f"{mode} · {count} supplemental flash captures" if count else mode
+
+    @Slot(QUrl, QUrl)
+    def loadApplication(self, application, bootloader):
+        self.configuration.update(
+            firmware=application.toLocalFile(),
+            bootloader=bootloader.toLocalFile() or None,
+            flash_dumps=[],
+            full_image=None,
+        )
+        self.start()
+
+    @Slot(QUrl)
+    def loadFullImage(self, image):
+        self.configuration.update(
+            firmware=None, bootloader=None, flash_dumps=[], full_image=image.toLocalFile()
+        )
+        self.start()
+
+    def start(self):
+        if not (self.configuration.get("firmware") or self.configuration.get("full_image")):
             return
         self.close()
         self._buffer = b""
@@ -224,7 +223,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Qt Quick firmware keyboard emulator")
     parser.add_argument("firmware", nargs="?")
     parser.add_argument("--flash-dump", action="append", default=[])
-    parser.add_argument("--bootloader-dump")
+    parser.add_argument("--bootloader-dump", help="Raw bootloader image or verified capture folder")
+    parser.add_argument("--full-image", help="Complete raw 512 KiB flash image")
     parser.add_argument(
         "--usbip",
         type=int,
@@ -234,10 +234,15 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be between 1 and 65535")
+    if args.full_image and (args.firmware or args.bootloader_dump or args.flash_dump):
+        parser.error("--full-image cannot be combined with separate images or captures")
+    if not args.firmware and (args.bootloader_dump or args.flash_dump):
+        parser.error("Separate captures require an application image")
     app = QGuiApplication([sys.argv[0]])
     app.setApplicationName("Razer Keyboard Emulator")
     configuration = {
         "firmware": args.firmware,
+        "full_image": args.full_image,
         "flash_dumps": args.flash_dump,
         "bootloader": args.bootloader_dump,
         "usbip": args.usbip,
