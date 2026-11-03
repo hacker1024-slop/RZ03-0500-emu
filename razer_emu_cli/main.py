@@ -29,7 +29,8 @@ def main(argv=None):
     parser.add_argument(
         "--check-interval-us",
         type=int,
-        help="Fault-check interval, 1–1000 virtual us (default: 125 for USB/IP, otherwise 10)",
+        default=125,
+        help="Fault-check interval, 1–1000 virtual us (default: 125)",
     )
     parser.add_argument(
         "--input-script",
@@ -82,7 +83,7 @@ def main(argv=None):
         parser.error("--bootloader-mode requires --bootloader-dump")
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be 1 to 65535")
-    if args.check_interval_us is not None and not 1 <= args.check_interval_us <= 1000:
+    if not 1 <= args.check_interval_us <= 1000:
         parser.error("Fault-check interval must be 1 to 1000 microseconds")
     try:
         script = InputScript.load(args.input_script) if args.input_script else None
@@ -98,13 +99,7 @@ def main(argv=None):
             flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump],
             bootloader=Bootloader.load(args.bootloader_dump) if args.bootloader_dump else None,
             simulate_overprogram_ecc_fault=args.simulate_overprogram_ecc_fault,
-            check_interval_us=(
-                args.check_interval_us
-                if args.check_interval_us is not None
-                else 125
-                if args.usbip is not None
-                else 10
-            ),
+            check_interval_us=args.check_interval_us,
         ) as keyboard:
             playback = keyboard.prepare_input_script(script) if script else None
             lighting = [keyboard.attach_lighting(bus, address) for bus, address in args.lighting]
