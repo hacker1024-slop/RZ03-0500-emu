@@ -134,14 +134,14 @@ class UsbIpServer:
                     self._imported = imported = True
                     if self._pace is not None:
                         started = time.monotonic()
-                        before = self.keyboard.state().elapsed_us
+                        before = self.keyboard.elapsed_us
                     self.host.reset_bus()
                     # VHCI handles SET_ADDRESS locally: the exported device
                     # must already have its own server-side USB address.
                     self.host.control(SetupPacket(0, 5, value=1))
                     self.keyboard.run_for(2000)
                     if self._pace is not None:
-                        await self._pace(started, before, self.keyboard.state().elapsed_us)
+                        await self._pace(started, before, self.keyboard.elapsed_us)
                     writer.write(
                         struct.pack("!HHI", VERSION, 3, 0) + self._device_record()
                     )
@@ -210,8 +210,9 @@ class UsbIpServer:
             while True:
                 if self._pace is not None:
                     started = time.monotonic()
-                    before = self.keyboard.state().elapsed_us
-                if receive.done():
+                    before = self.keyboard.elapsed_us
+                request_ready = receive.done()
+                if request_ready:
                     raw, payload = receive.result()
                     command, sequence, device, direction, endpoint = struct.unpack_from(
                         "!IIIII", raw
@@ -320,7 +321,10 @@ class UsbIpServer:
                             self._reply(writer, sequence, status, bytes(request.data))
                             del pending[sequence]
                 else:
-                    state = self.keyboard.run_for(5000, _usb_pump=pump)
+                    # Yield to the client sooner after replying to a request.
+                    # Idle batches amortize runner setup without changing poll slots.
+                    batch_us = 2500 if request_ready else 6750
+                    state = self.keyboard.run_for(batch_us, _usb_pump=pump)
                     if state.stopped_reason:
                         raise UsbError(f"Emulation stopped: {state.stopped_reason}")
                     for completion in pump.Drain():
@@ -339,7 +343,7 @@ class UsbIpServer:
                 if pump is not None and not self.keyboard._usb_device.Connected:
                     raise UsbError("Virtual USB device is disconnected")
                 if self._pace is not None:
-                    await self._pace(started, before, self.keyboard.state().elapsed_us)
+                    await self._pace(started, before, self.keyboard.elapsed_us)
                 # Yield to sockets and cancellation even with continuous NAKs.
                 await asyncio.sleep(0)
         finally:

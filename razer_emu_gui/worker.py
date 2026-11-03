@@ -221,12 +221,12 @@ async def run(configuration):
                     if index in momentary or index in latched:
                         if index not in held:
                             contact(index, True)
-                            held[index] = keyboard.state().elapsed_us
+                            held[index] = keyboard.elapsed_us
                         releases.pop(index, None)
                     elif index in held:
                         # A short mouse click must still cross firmware debounce in
                         # virtual time, even when emulation runs below real time.
-                        releases[index] = max(keyboard.state().elapsed_us, held[index] + 40_000)
+                        releases[index] = max(keyboard.elapsed_us, held[index] + 40_000)
             if reset_generation != keyboard.reset_generation:
                 # The firmware requested a warm reset. Retire the old USB identity
                 # and publish descriptors from the device that boots next.
@@ -251,7 +251,7 @@ async def run(configuration):
             guest_attached = server is not None and server.imported
             if running:
                 if wheel_phases:
-                    elapsed = keyboard.state().elapsed_us
+                    elapsed = keyboard.elapsed_us
                     if elapsed >= next_phase:
                         encoder.set_phases(*wheel_phases.popleft())
                         next_phase = elapsed + WHEEL_PHASE_US
@@ -262,7 +262,7 @@ async def run(configuration):
                 else:
                     if limit_speed:
                         started = time.monotonic()
-                        before = keyboard.state().elapsed_us
+                        before = keyboard.elapsed_us
                     state = keyboard.run_for(5000, _usb_pump=pump)
                     if limit_speed:
                         await pace(started, before, state.elapsed_us)

@@ -108,8 +108,8 @@ class Keyboard:
                     "LpcUsbPhy.cs",
                     "LpcUsbDevice.cs",
                     "LpcTimer.cs",
-                    "LpcDma.cs",
                     "LpcI2c.cs",
+                    "LpcDma.cs",
                     "Chroma192.cs",
                     "LpcFlash.cs",
                     "LpcWatchdog.cs",
@@ -131,6 +131,7 @@ class Keyboard:
             self._modeled_peripherals = tuple(
                 getattr(self._machine.sysbus, name).internal for name in self._models
             )
+            from Antmicro.Renode.Peripherals.LED import RazerChroma192
             from Antmicro.Renode.Peripherals.Miscellaneous import RazerLpcAnalog
             from Antmicro.Renode.Utilities import RazerExecutionRunner
             from System import Array, Byte
@@ -145,6 +146,7 @@ class Keyboard:
                 self._machine.sysbus.syscon.internal,
                 self._machine.sysbus.gpio.internal,
             )
+            self._lighting_backends = Array[RazerChroma192]([])
             self._runner.CheckIntervalUs = check_interval_us
             self._machine.sysbus.nvic.internal.SystemResetRequest.Connect(self._runner, 0)
             self.reset_generation = 0
@@ -243,6 +245,7 @@ class Keyboard:
         Bus 2 or 4 selects the modeled Flexcomm I2C controller.
         """
         from Antmicro.Renode.Peripherals.LED import RazerChroma192
+        from System import Array
 
         self._ensure_running()
         if self._elapsed_us or self._cpu.ExecutedInstructions:
@@ -257,6 +260,7 @@ class Keyboard:
         getattr(self._machine.sysbus, f"flexcomm{bus}").internal.Attach(address, backend)
         controller = LightingController(self, backend, bus, address)
         self._lighting[bus, address] = controller
+        self._lighting_backends = Array[RazerChroma192]([c._backend for c in self._lighting.values()])
         return controller
 
     @staticmethod
@@ -384,10 +388,6 @@ class Keyboard:
                 self._input_playback._apply_due(self._elapsed_us)
                 if self._input_playback is not None:
                     quantum = min(quantum, self._input_playback.next_due_us - self._elapsed_us)
-            from Antmicro.Renode.Peripherals.LED import RazerChroma192
-            from System import Array
-
-            lights = Array[RazerChroma192]([c._backend for c in self._lighting.values()])
             args = (
                 quantum,
                 self._initial_reads,
@@ -395,7 +395,7 @@ class Keyboard:
                 self._watchdog,
                 self._ezh,
                 self._usb_device,
-                lights,
+                self._lighting_backends,
             )
             try:
                 if _usb_pump is None:
@@ -418,6 +418,13 @@ class Keyboard:
             self._input_playback._apply_due(self._elapsed_us)
             return self.state()
         return state
+
+    @property
+    def elapsed_us(self):
+        """Virtual time without collecting a full CPU and peripheral snapshot."""
+        if self._closed:
+            raise RuntimeError("Keyboard is closed")
+        return self._elapsed_us
 
     def state(self):
         if self._closed:

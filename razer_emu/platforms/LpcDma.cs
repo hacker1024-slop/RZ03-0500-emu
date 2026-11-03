@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 using System;
+using System.Numerics;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.I2C;
+using Antmicro.Renode.Peripherals.Memory;
 using Antmicro.Renode.Peripherals.Miscellaneous;
 using Antmicro.Renode.Peripherals.Timers;
 using Antmicro.Renode.Time;
@@ -94,11 +97,15 @@ namespace Antmicro.Renode.Peripherals.DMA
         }
         private bool Ready(int channel)
         {
-            var config = values[0x400 + channel * 16];
-            return (values[0] & 1) != 0 && (values[0x20] & (1U << channel)) != 0
-                && (values[0x408 + channel * 16] & 1) != 0
-                && (values[0x404 + channel * 16] & 4) != 0
-                && ((config & 1) == 0 || requests[channel]);
+            var offset = 0x400 + channel * 16;
+            return (values[offset + 8] & 1) != 0
+                && (values[offset + 4] & 4) != 0
+                && (requests[channel] || (values[offset] & 1) == 0);
+        }
+        private int NextEnabledChannel(int start)
+        {
+            if((values[0] & 1) == 0) return 32;
+            return BitOperations.TrailingZeroCount(values[0x20] & (uint.MaxValue << start));
         }
         private void Update()
         {
@@ -106,7 +113,7 @@ namespace Antmicro.Renode.Peripherals.DMA
             values[4] = (enabledInterrupts != 0 ? 2U : 0) | (values[0x40] != 0 ? 4U : 0);
             IRQ?.Set(values[4] != 0);
             uint active = 0;
-            for(var channel = 0; channel < 23; channel++)
+            for(var channel = NextEnabledChannel(0); channel < 23; channel = NextEnabledChannel(channel + 1))
                 if(Ready(channel)) active |= 1U << channel;
             values[0x30] = active;
             if(clock != null) clock.Enabled = active != 0;
@@ -114,7 +121,8 @@ namespace Antmicro.Renode.Peripherals.DMA
         private void Service()
         {
             // One beat per virtual microsecond; no bus arbitration/cycle timing.
-            for(var channel = 0; channel < 23; channel++)
+            var statusChanged = false;
+            for(var channel = NextEnabledChannel(0); channel < 23; channel = NextEnabledChannel(channel + 1))
             {
                 if(!Ready(channel)) continue;
                 var offset = 0x408 + channel * 16;
@@ -131,12 +139,24 @@ namespace Antmicro.Renode.Peripherals.DMA
                 }
                 try
                 {
-                    engine.IssueCopy(new Request(source[channel], destination[channel], width,
+                    var bus = machine.SystemBus;
+                    // A single byte from mapped RAM to the I2C data register
+                    // uses the same bus operations as DmaEngine without allocating.
+                    if(width == 1 && sourceStep == 1 && destinationStep == 0
+                        && (destination[channel] & 0xFFF) == 0x828
+                        && bus.WhatIsAt(source[channel])?.Peripheral is MappedMemory
+                        && bus.WhatIsAt(destination[channel])?.Peripheral is RazerLpcI2c)
+                    {
+                        bus.ReadBytes(source[channel], 1, byteBeat, 0);
+                        bus.WriteByte(destination[channel], byteBeat[0]);
+                    }
+                    else engine.IssueCopy(new Request(source[channel], destination[channel], width,
                         (TransferType)width, (TransferType)width, sourceStep, destinationStep,
                         sourceStep != 0, destinationStep != 0));
                 }
                 catch(BusAccessException)
                 {
+                    statusChanged = true;
                     values[0x40] |= 1U << channel;
                     values[offset] &= ~1U;
                     values[offset - 4] = 0;
@@ -147,6 +167,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                 if((config & 0x03FF0000) != 0) values[offset] -= 0x10000;
                 else
                 {
+                    statusChanged = true;
                     var bit = 1U << channel;
                     if((config & 0x10) != 0) values[0x58] |= bit;
                     if((config & 0x20) != 0) values[0x60] |= bit;
@@ -167,7 +188,7 @@ namespace Antmicro.Renode.Peripherals.DMA
                     }
                 }
             }
-            Update();
+            if(statusChanged) Update();
         }
         private bool Load(int channel, uint descriptor, uint config)
         {
@@ -188,6 +209,7 @@ namespace Antmicro.Renode.Peripherals.DMA
         private static uint Step(uint code, int width) => (code & 3) == 0 ? 0 : (uint)(width << ((int)(code & 3) - 1));
         private readonly IMachine machine;
         private readonly DmaEngine engine;
+        private readonly byte[] byteBeat = new byte[1];
         private readonly LimitTimer clock;
         private readonly bool[] requests = new bool[23], loaded = new bool[23];
         private readonly uint[] source = new uint[23], destination = new uint[23], next = new uint[23];

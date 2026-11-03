@@ -177,28 +177,35 @@ class UsbHost:
         is_read = bool(setup.request_type & 0x80)
         if (is_read and data) or (not is_read and len(data) != setup.length):
             raise ValueError("USB OUT payload must match wLength; IN requests have no OUT payload")
-        deadline = self._deadline(timeout_us)
-        self._packet(lambda: self._backend.HostSetup(self._array(setup.pack())), deadline)
+        now = self._check().elapsed_us
+        deadline = self._deadline(timeout_us, now=now)
+        setup_packet = self._array(setup.pack())
+        _, now = self._packet(lambda: self._backend.HostSetup(setup_packet), deadline, now)
         result = bytearray()
         if is_read and setup.length:
             while len(result) < setup.length:
-                packet = self._packet(lambda: self._backend.HostIn(0, 64), deadline, read=True)
+                packet, now = self._packet(
+                    lambda: self._backend.HostIn(0, 64), deadline, now, read=True
+                )
                 result.extend(packet)
                 if len(result) > setup.length:
                     raise UsbError("Device returned more data than wLength")
                 if len(packet) < 64:
                     break
-            self._packet(lambda: self._backend.HostOut(0, self._array(b""), 64), deadline)
+            empty = self._array(b"")
+            _, now = self._packet(lambda: self._backend.HostOut(0, empty, 64), deadline, now)
         else:
             for offset in range(0, len(data), 64):
                 packet = self._array(data[offset : offset + 64])
-                self._packet(lambda: self._backend.HostOut(0, packet, 64), deadline)
-            status = self._packet(lambda: self._backend.HostIn(0, 64), deadline, read=True)
+                _, now = self._packet(lambda: self._backend.HostOut(0, packet, 64), deadline, now)
+            status, now = self._packet(
+                lambda: self._backend.HostIn(0, 64), deadline, now, read=True
+            )
             if status:
                 raise UsbError("Control status stage contained data")
         # Give firmware a service quantum for the final completion interrupt.
-        if self._check().elapsed_us < deadline:
-            self._advance(deadline)
+        if now < deadline:
+            self._advance(deadline, now=now)
         return bytes(result)
 
     def read_interrupt(self, endpoint, maximum_packet_size, *, interval_us=125, timeout_us=100_000):
@@ -260,33 +267,34 @@ class UsbHost:
 
         return Array[Byte](data)
 
-    def _check(self):
-        state = self._keyboard.state()
+    def _check(self, state=None):
+        if state is None:
+            state = self._keyboard.state()
         if state.stopped_reason:
             raise UsbError(f"Emulation stopped: {state.stopped_reason}")
         return state
 
-    def _deadline(self, timeout_us):
+    def _deadline(self, timeout_us, *, now=None):
         if type(timeout_us) is not int or not 1 <= timeout_us <= 10_000_000:
             raise ValueError("USB timeout must be 1 to 10,000,000 virtual microseconds")
-        return self._check().elapsed_us + timeout_us
+        return (self._check().elapsed_us if now is None else now) + timeout_us
 
-    def _advance(self, deadline, quantum_us=10):
-        remaining = deadline - self._check().elapsed_us
+    def _advance(self, deadline, quantum_us=10, *, now=None):
+        remaining = deadline - (self._check().elapsed_us if now is None else now)
         if remaining <= 0:
             raise UsbTimeout("USB transaction exceeded its virtual-time budget")
-        self._keyboard.run_for(min(quantum_us, remaining))
-        self._check()
+        return self._check(self._keyboard.run_for(min(quantum_us, remaining))).elapsed_us
 
-    def _packet(self, operation, deadline, *, read=False, endpoint=0, poll_interval_us=10):
+    def _packet(self, operation, deadline, now, *, read=False):
         while True:
-            self._check()
             if not self._backend.Connected:
                 raise UsbError("Virtual USB device is disconnected")
             result = operation()
             handshake = str(result.Handshake if read else result)
             if handshake == "Ack":
-                return bytes(result.Data) if read else None
+                return (bytes(result.Data) if read else None), now
             if handshake == "Stall":
-                raise UsbStall(f"Firmware stalled endpoint 0x{endpoint:02x}")
-            self._advance(deadline, poll_interval_us)
+                raise UsbStall("Firmware stalled endpoint 0x00")
+            if self._backend.TransferError:
+                self._check()
+            now = self._advance(deadline, now=now)
