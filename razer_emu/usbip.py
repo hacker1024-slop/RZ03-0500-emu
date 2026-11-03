@@ -85,6 +85,11 @@ class UsbIpServer:
             len(self.interfaces),
         )
 
+    @property
+    def imported(self):
+        """Whether a guest currently owns the exported device."""
+        return self._imported
+
     async def serve(self, address="127.0.0.1", port=3240):
         """Serve until cancelled; close clients before returning."""
         server = await asyncio.start_server(

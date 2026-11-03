@@ -104,7 +104,12 @@ python -m pip install -e '.[gui]'
 razer-emu-gui application.bin --flash-dump ./settings-capture
 ```
 
-Add `--usbip 3240` to export the GUI's keyboard to a guest through the loopback USB/IP server described below. Clicking keys or clicking the volume wheel then changes the same device imported by the guest. The guest owns USB endpoint polling in this mode; pause and reset are disabled in this mode.
+Open **USB/IP…** to enable or disable export and choose the loopback port
+(default 3240). You can also launch with `--usbip 3240`. Applying a change
+restarts loaded firmware and disconnects any attached guest. The GUI shows
+the configured endpoint and bus ID. Firmware continues running while waiting
+for a guest. An attached guest owns USB endpoint polling. The GUI disables
+pause and reset while export is enabled.
 
 `python -m razer_emu_gui` is equivalent. The key and RGB map describes the BlackWidow V4 75% ANSI hardware. Both
 firmware 1.1.1 and 1.2.1 use the same map. The GUI accepts structurally valid

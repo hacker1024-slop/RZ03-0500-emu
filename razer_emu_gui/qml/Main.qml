@@ -42,12 +42,35 @@ ApplicationWindow {
         MenuItem { text: "Bootloader and application…"; onTriggered: bootloaderDialog.open() }
         MenuItem { text: "Complete flash image…"; onTriggered: fullImageDialog.open() }
     }
+    Dialog {
+        id: usbipDialog
+        title: "USB/IP"
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAboutToShow: {
+            exportKeyboard.checked = emulator.usbipMode
+            exportPort.value = emulator.usbipPort || 3240
+        }
+        onAccepted: emulator.configureUsbip(exportKeyboard.checked ? exportPort.value : 0)
+
+        ColumnLayout {
+            CheckBox { id: exportKeyboard; text: "Export keyboard over USB/IP" }
+            RowLayout {
+                enabled: exportKeyboard.checked
+                Label { text: "Loopback port" }
+                SpinBox { id: exportPort; from: 1; to: 65535; editable: true }
+            }
+            Label { text: "Changing these settings restarts loaded firmware." }
+        }
+    }
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
+            Button { text: "USB/IP…"; onClicked: usbipDialog.open() }
             Button { text: "Load firmware"; onClicked: loadMenu.popup() }
             Button { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }
             Button { enabled: !emulator.usbipMode; text: "Reset"; onClicked: emulator.reset() }
@@ -134,6 +157,10 @@ ApplicationWindow {
             Label { text: emulator.virtualTime + " · " + emulator.speed }
         }
         Label { text: emulator.captureSummary }
+        Label {
+            visible: emulator.usbipMode
+            text: "USB/IP · 127.0.0.1:" + emulator.usbipPort + " · Bus ID 1-1"
+        }
         Label { text: "USB input: " + emulator.report }
     }
 }

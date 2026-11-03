@@ -98,11 +98,12 @@ async def run(configuration):
 
         if not exported:
             pump = start_polling()
-        transport = None
+        server = transport = None
         if exported:
             from razer_emu.usbip import UsbIpServer
 
-            transport = asyncio.create_task(UsbIpServer(keyboard, enumeration).serve(port=exported))
+            server = UsbIpServer(keyboard, enumeration)
+            transport = asyncio.create_task(server.serve(port=exported))
         wheel_phases = deque()
         next_phase = 0
         held, releases = {}, {}
@@ -183,13 +184,19 @@ async def run(configuration):
                         releases[index] = max(keyboard.state().elapsed_us, held[index] + 40_000)
             if transport and transport.done():
                 transport.result()
+            guest_attached = server is not None and server.imported
             if running:
                 if wheel_phases:
                     elapsed = keyboard.state().elapsed_us
                     if elapsed >= next_phase:
                         encoder.set_phases(*wheel_phases.popleft())
                         next_phase = elapsed + WHEEL_PHASE_US
-                state = keyboard.state() if exported else keyboard.run_for(5000, _usb_pump=pump)
+                # An attached guest drives execution through USB/IP transfers.
+                # While waiting for a guest, advance firmware without polling USB.
+                if guest_attached:
+                    state = keyboard.state()
+                else:
+                    state = keyboard.run_for(5000, _usb_pump=pump)
                 if state.stopped_reason:
                     raise RuntimeError(
                         state.stopped_reason + ": " + "; ".join(keyboard.logs()[-5:])
@@ -228,7 +235,7 @@ async def run(configuration):
                     }
                 )
                 last_frame = now
-            await asyncio.sleep(0.005 if exported else 0)
+            await asyncio.sleep(0.005 if guest_attached else 0)
 
 
 def main():

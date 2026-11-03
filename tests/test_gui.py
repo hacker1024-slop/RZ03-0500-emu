@@ -1,6 +1,8 @@
 """Opt-in photo-backed QML click through the original firmware worker."""
 
 import os
+import socket
+import struct
 import time
 from importlib.resources import files
 
@@ -100,6 +102,30 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
         bridge.toggleRunning()
         wait_until(lambda: not bridge.running)
         assert not bridge.pressed
+        with socket.socket() as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+        bridge.configureUsbip(port)
+        assert bridge.usbipMode and bridge.usbipPort == port
+
+        def exported():
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2) as client:
+                    client.sendall(struct.pack("!HHI", 0x0111, 0x8005, 0))
+                    with client.makefile("rb") as response:
+                        return response.read(12) == struct.pack("!HHII", 0x0111, 5, 0, 1)
+            except OSError:
+                return False
+
+        wait_until(exported)
+        wait_until(lambda: bridge.running)
+        idle_time = bridge.virtualTime
+        wait_until(lambda: bridge.virtualTime != idle_time)
+        bridge.configureUsbip(0)
+        assert not bridge.usbipMode
+        wait_until(lambda: bridge.running)
+        with pytest.raises(ConnectionRefusedError):
+            socket.create_connection(("127.0.0.1", port), timeout=0.2)
     finally:
         bridge.close()
         window.close()

@@ -52,9 +52,23 @@ class EmulatorBridge(QObject):
     def boardHeight(self):
         return self.layout["height"]
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=changed)
     def usbipMode(self):
         return bool(self.configuration.get("usbip"))
+
+    @Property(int, notify=changed)
+    def usbipPort(self):
+        return self.configuration.get("usbip") or 0
+
+    @Slot(int)
+    def configureUsbip(self, port):
+        if not 0 <= port <= 65535 or port == self.usbipPort:
+            return
+        self.configuration["usbip"] = port or None
+        if self.configuration.get("firmware") or self.configuration.get("full_image"):
+            self.start()
+        else:
+            self.changed.emit()
 
     @Property("QVariantList", constant=True)
     def keys(self):
@@ -150,6 +164,9 @@ class EmulatorBridge(QObject):
         self._buffer = b""
         self._colors = {}
         self._pressed = []
+        self._running = False
+        self._virtual = "0.000 s"
+        self._report = "No USB input reports yet"
         self._status = "Starting original firmware…"
         self._speed = "—"
         self._speed_samples.clear()
