@@ -114,12 +114,19 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
         bridge.configureUsbip(port)
         assert bridge.usbipMode and bridge.usbipPort == port
 
-        def exported():
+        def exported(pid=None):
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=0.2) as client:
                     client.sendall(struct.pack("!HHI", 0x0111, 0x8005, 0))
                     with client.makefile("rb") as response:
-                        return response.read(12) == struct.pack("!HHII", 0x0111, 5, 0, 1)
+                        if response.read(12) != struct.pack("!HHII", 0x0111, 5, 0, 1):
+                            return False
+                        if pid is None:
+                            return True
+                        record = response.read(312)
+                        return len(record) == 312 and struct.unpack_from("!HH", record, 300) == (
+                            0x1532, pid,
+                        )
             except OSError:
                 return False
 
@@ -175,6 +182,29 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
             bridge.reset()
             wait_until(lambda: bridge.status == "Running original firmware")
             wait_until(exported)
+        if bridge.canResetIntoBootloader:
+            # The official updater sends HID feature command 00/04, mode 1.
+            with socket.create_connection(("127.0.0.1", port), timeout=5) as guest:
+                guest.sendall(struct.pack("!HHI32s", 0x0111, 0x8003, 0, b"1-1"))
+                with guest.makefile("rb") as response:
+                    assert response.read(8) == struct.pack("!HHI", 0x0111, 3, 0)
+                    assert len(response.read(312)) == 312
+                    report = bytearray(90)
+                    report[1], report[5], report[7], report[8], report[88] = 1, 2, 4, 1, 7
+                    for sequence, setup, data in (
+                        (1, struct.pack("<BBHHH", 0, 9, 1, 0, 0), b""),
+                        (2, struct.pack("<BBHHH", 0x21, 9, 0x300, 3, 90), report),
+                    ):
+                        guest.sendall(struct.pack(
+                            "!IIIIIIiiii8s", 1, sequence, 0x10001, 0, 0, 0,
+                            len(data), 0, -1, 0, setup,
+                        ) + data)
+                        reply = response.read(48)
+                        assert struct.unpack_from("!II12xi", reply) == (3, sequence, 0)
+                    wait_until(lambda: bool(select.select([guest], [], [], 0)[0]))
+                    assert response.read(1) == b""
+            wait_until(lambda: bridge.status == "Running Razer bootloader")
+            wait_until(lambda: exported(0x110E))
         bridge.configureUsbip(0)
         assert not bridge.usbipMode
         wait_until(lambda: bridge.running)

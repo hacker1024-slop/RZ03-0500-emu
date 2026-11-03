@@ -140,6 +140,7 @@ async def run(configuration):
         next_led_sample = 0.0
         last_lighting = last_colors = None
         state = keyboard.state()
+        reset_generation = keyboard.reset_generation
 
         def contact(index, pressed):
             key = layout["keys"][index]
@@ -189,6 +190,7 @@ async def run(configuration):
                         server, transport = start_export()
                     else:
                         pump = start_polling()
+                    reset_generation = keyboard.reset_generation
                     report = ""
                     running = True
                 elif kind == "limit_speed":
@@ -225,6 +227,25 @@ async def run(configuration):
                         # A short mouse click must still cross firmware debounce in
                         # virtual time, even when emulation runs below real time.
                         releases[index] = max(keyboard.state().elapsed_us, held[index] + 40_000)
+            if reset_generation != keyboard.reset_generation:
+                # The firmware requested a warm reset. Retire the old USB identity
+                # and publish descriptors from the device that boots next.
+                await stop_export()
+                release_all()
+                clear_wheel()
+                enumeration = keyboard.usb.enumerate_device()
+                bootloader_mode = enumeration.device[8:12] == bytes.fromhex("32150e11")
+                endpoints = {
+                    address: (size, interval)
+                    for address, size, interval in enumeration.interrupt_inputs
+                }
+                if exported:
+                    server, transport = start_export()
+                else:
+                    pump = start_polling()
+                reset_generation = keyboard.reset_generation
+                pace_deadline = None
+                report = ""
             if transport and transport.done():
                 transport.result()
             guest_attached = server is not None and server.imported
@@ -245,6 +266,8 @@ async def run(configuration):
                     state = keyboard.run_for(5000, _usb_pump=pump)
                     if limit_speed:
                         await pace(started, before, state.elapsed_us)
+                if reset_generation != keyboard.reset_generation:
+                    continue
                 if state.stopped_reason:
                     raise RuntimeError(
                         state.stopped_reason + ": " + "; ".join(keyboard.logs()[-5:])

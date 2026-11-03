@@ -102,6 +102,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
 
     public class RazerLpcPmc : RazerLpcAnalog
     {
+        public void MarkSystemReset() { values[0x84] |= 0x80; }
         public override void Reset()
         {
             // AOREG1 survives pin/software reset; constructing a new virtual

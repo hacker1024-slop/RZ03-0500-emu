@@ -146,6 +146,8 @@ class Keyboard:
                 self._machine.sysbus.gpio.internal,
             )
             self._runner.CheckIntervalUs = check_interval_us
+            self._machine.sysbus.nvic.internal.SystemResetRequest.Connect(self._runner, 0)
+            self.reset_generation = 0
 
             flash = self._machine.sysbus.flash.internal
             for region in flash_regions:
@@ -275,6 +277,9 @@ class Keyboard:
 
     def reset(self):
         """Reset into the supplied bootloader, or recreate the application handoff."""
+        self._reset(warm=False)
+
+    def _reset(self, *, warm):
         from System import Array, Byte
 
         if self._closed:
@@ -283,11 +288,16 @@ class Keyboard:
         self._hard_pause_processors()
         self._engine.PauseAll()
         self._machine.Reset()
+        self._runner.Reset()
+        if warm:
+            self._machine.sysbus.pmc.internal.MarkSystemReset()
+        self.reset_generation += 1
         self.usb._reset_timing()
         for controller in self._lighting.values():
             controller._backend.Reset()
-        self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)
-        self._bus.WriteBytes(Array[Byte](bytes(0x8000)), 0x04000000)
+        if not warm:
+            self._bus.WriteBytes(Array[Byte](bytes(0x30000)), RUNTIME_BASE)
+            self._bus.WriteBytes(Array[Byte](bytes(0x8000)), 0x04000000)
         self._bus.WriteBytes(Array[Byte](bytes(0x4000)), 0x40100000)
         if self.bootloader is None:
             self._bus.WriteBytes(Array[Byte](self.firmware.image), RUNTIME_BASE)
@@ -302,7 +312,8 @@ class Keyboard:
         self._cpu.SP = self._register(image.initial_sp)
         self._cpu.PC = self._register(image.reset_vector)
         self._cpu.PerformanceInMips = 96
-        self._elapsed_us = 0
+        if not warm:
+            self._elapsed_us = 0
         self._reason = None
         self._initial_reads = self._bus.UnexpectedReads
         self._initial_writes = self._bus.UnexpectedWrites
@@ -396,6 +407,12 @@ class Keyboard:
                 advanced = int(self._runner.LastElapsedUs)
                 self._elapsed_us += advanced
                 remaining -= advanced
+            if self._runner.ResetRequested:
+                if self.bootloader is None:
+                    self._reason = "firmware_reset_requires_bootloader"
+                else:
+                    self._reset(warm=True)
+                return self.state()
             state = self.state()
         if not self._reason and self._input_playback is not None:
             self._input_playback._apply_due(self._elapsed_us)

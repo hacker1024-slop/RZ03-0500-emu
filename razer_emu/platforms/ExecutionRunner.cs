@@ -16,7 +16,7 @@ namespace Antmicro.Renode.Utilities
     // Drives Renode on the owning thread. Device service and register inspection
     // happen inside safe synchronization hooks; CPU threads stay alive for the
     // entire bounded run, including interrupt endpoint polling slots.
-    public class RazerExecutionRunner
+    public class RazerExecutionRunner : IGPIOReceiver
     {
         public RazerExecutionRunner(Emulation emulation, IMachine machine, CortexM cpu,
             RazerLpcAnalog[] peripherals, RazerLpcSyscon syscon, RazerLpcGpio gpio)
@@ -24,6 +24,9 @@ namespace Antmicro.Renode.Utilities
             this.emulation = emulation; this.machine = machine; this.cpu = cpu;
             this.peripherals = peripherals; this.syscon = syscon; this.gpio = gpio;
         }
+        public bool ResetRequested { get; private set; }
+        public void OnGPIO(int number, bool value) { if(value) ResetRequested = true; }
+        public void Reset() { ResetRequested = false; }
         public ulong CheckIntervalUs
         {
             get => checkIntervalUs;
@@ -79,7 +82,7 @@ namespace Antmicro.Renode.Utilities
                     foreach(var peripheral in peripherals)
                     { reads += peripheral.UnsupportedReads; writes += peripheral.UnsupportedWrites; }
                     var exception = cpu.CPSR.RawValue & 0x1FF;
-                    stop = watchdog.Expired || ezh.BusFault || ezh.UnsupportedInstruction || usb.TransferError != null ||
+                    stop = ResetRequested || watchdog.Expired || ezh.BusFault || ezh.UnsupportedInstruction || usb.TransferError != null ||
                         reads != initialReads || writes != initialWrites ||
                         (exception >= 3 && exception <= 6) || machine.SystemBus.ReadDoubleWord(0xE000ED28) != 0;
                     foreach(var controller in lighting) if(controller.UnsupportedOperation != null) stop = true;
