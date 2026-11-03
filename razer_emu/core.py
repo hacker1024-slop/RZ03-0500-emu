@@ -161,8 +161,17 @@ class Keyboard:
                     Array[Byte](region.valid_mask),
                 )
             if bootloader is not None:
-                flash.LoadImage(0, Array[Byte](bootloader.image))
-                flash.LoadImage(FLASH_APPLICATION, Array[Byte](firmware.image))
+                # Mirror a committed application update in the virtual flash.
+                # The stock loader reads the active image length at 0x7810.
+                page_size = 512
+                image = firmware.image + bytes(-len(firmware.image) % page_size)
+                if len(image) > 0x1E000:
+                    raise ValueError("Application exceeds the stock bootloader's flash slot")
+                active_length_offset = 0x7810
+                loader_image = bytearray(bootloader.image)
+                loader_image[active_length_offset:active_length_offset + 4] = len(image).to_bytes(4, "little")
+                flash.LoadImage(0, Array[Byte](bytes(loader_image)))
+                flash.LoadImage(FLASH_APPLICATION, Array[Byte](image))
             self._watchdog = self._machine.sysbus.wwdt.internal
             self._cpu.ConfigureWatchdogFastPath(self._watchdog)
             self._ezh = self._machine.sysbus.ezh.internal
