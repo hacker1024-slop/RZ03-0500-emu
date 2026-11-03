@@ -129,8 +129,11 @@ def test_gpio_aliases_flash_reads_and_i2c_nack(cpu_image):
         assert keyboard.state().stopped_reason is None
 
 
-def test_flash_erase_ecc_program_and_reprogram_rejection(cpu_image):
-    with Keyboard(Firmware.load(cpu_image)) as keyboard:
+@pytest.mark.parametrize("inject_ecc_fault", [False, True])
+def test_flash_erase_ecc_program_and_reprogram_rejection(cpu_image, inject_ecc_fault):
+    with Keyboard(
+        Firmware.load(cpu_image), simulate_overprogram_ecc_fault=inject_ecc_fault
+    ) as keyboard:
         from Antmicro.Renode.Peripherals.Bus import BusAccessException
 
         bus = keyboard._bus
@@ -164,8 +167,23 @@ def test_flash_erase_ecc_program_and_reprogram_rejection(cpu_image):
         bus.WriteDoubleWord(clear, 15)
         bus.WriteDoubleWord(command, 12)
         assert bus.ReadDoubleWord(status) == 5  # cannot program twice without erase
+        assert any("Flash program rejected on non-erased page 0x44000" in line
+                   for line in keyboard.logs())
         keyboard.reset()
-        assert bus.ReadDoubleWord(target) == 0x12345678  # CPU reset preserves flash
+        if inject_ecc_fault:
+            with pytest.raises(BusAccessException):
+                bus.ReadDoubleWord(target)
+            bus.WriteDoubleWord(start, target >> 4)
+            bus.WriteDoubleWord(clear, 15)
+            bus.WriteDoubleWord(command, 3)
+            assert bus.ReadDoubleWord(command + 0x80) == 0x12345678
+            assert bus.ReadDoubleWord(status) == 12  # raw read completes with invalid ECC
+            bus.WriteDoubleWord(stop, target >> 4)
+            bus.WriteDoubleWord(command, 4)
+            bus.WriteDoubleWord(command, 12)
+            assert bus.ReadDoubleWord(target) == 0
+        else:
+            assert bus.ReadDoubleWord(target) == 0x12345678
 
 
 def test_capture_holes_do_not_acquire_valid_flash_ecc(cpu_image):
@@ -962,6 +980,10 @@ def test_flash_execution_reprogramming_and_boot_reset_preserve_nonvolatile_state
         assert keyboard.read_memory(0x100, 2) == bytes([99, 0x20])
         assert keyboard.run_for(10).stopped_reason is None
         assert keyboard._value(keyboard._cpu.GetRegister(0)) == 99
+        assert not flash.Program(0, Array[Byte](bytes(512)))
+        assert bytes(flash.ReadRaw(0, 512)) == bytes(image[:512])
+        keyboard.reset()
+        assert keyboard.run_for(10).stopped_reason == "cpu_fault"
 
 
 @pytest.mark.parametrize("fetch", [False, True])

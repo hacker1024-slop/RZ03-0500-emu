@@ -2,6 +2,7 @@
 using System;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Exceptions;
+using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Bus;
 using Antmicro.Renode.Peripherals.CPU;
 using Antmicro.Renode.Peripherals.Miscellaneous;
@@ -17,9 +18,10 @@ namespace Antmicro.Renode.Peripherals.MTD
         public void Reset() { } // reset does not erase nonvolatile memory
         public long Size => bytes.Length;
         public event Action EccError;
+        public bool SimulateOverprogramEccFault { get; set; } = true;
         public byte ReadByte(long offset)
         {
-            if(!programmed[offset / 16])
+            if(!IsEccReadable((int)offset))
             {
                 EccError?.Invoke();
                 throw new BusAccessException(BusAccessError.AddressError);
@@ -47,6 +49,7 @@ namespace Antmicro.Renode.Peripherals.MTD
                 throw new BusAccessException(BusAccessError.AddressError);
             bytes[offset] = value;
             programmed[offset / 16] = true; // host image loading only
+            corrupt[offset / 16] = false;
             Invalidate((int)offset, 1);
         }
         public void WriteWord(long offset, ushort value)
@@ -59,6 +62,7 @@ namespace Antmicro.Renode.Peripherals.MTD
                 throw new ArgumentException("Image is outside the flash bank");
             Array.Copy(image, 0, bytes, address, image.Length);
             for(var i = 0; i < image.Length; i += 16) programmed[(address + i) / 16] = true;
+            Array.Clear(corrupt, address / 16, (image.Length + 15) / 16);
             Invalidate(address, image.Length);
         }
         public void LoadRegion(int address, byte[] image, byte[] mask)
@@ -73,10 +77,12 @@ namespace Antmicro.Renode.Peripherals.MTD
                 if(!valid) continue; // never turn a placeholder into programmed data
                 Array.Copy(image, word, bytes, address + word, 16);
                 programmed[(address + word) / 16] = true;
+                corrupt[(address + word) / 16] = false;
             }
             Invalidate(address, image.Length);
         }
         public bool IsProgrammed(int address) => programmed[address / 16];
+        public bool IsEccReadable(int address) => IsProgrammed(address) && !corrupt[address / 16];
         public byte[] ReadRaw(int address, int count)
         {
             var result = new byte[count];
@@ -87,12 +93,22 @@ namespace Antmicro.Renode.Peripherals.MTD
         {
             Array.Clear(bytes, address, count);
             Array.Clear(programmed, address / 16, count / 16);
+            Array.Clear(corrupt, address / 16, count / 16);
             Invalidate(address, count);
         }
         public bool Program(int address, byte[] data)
         {
             for(var i = 0; i < data.Length; i += 16)
-                if(IsProgrammed(address + i)) return false;
+                if(IsProgrammed(address + i))
+                {
+                    if(SimulateOverprogramEccFault)
+                    {
+                        // Worst-case fault injection. The original raw data is retained.
+                        Array.Fill(corrupt, true, address / 16, data.Length / 16);
+                        Invalidate(address, data.Length);
+                    }
+                    return false;
+                }
             Array.Copy(data, 0, bytes, address, data.Length);
             for(var i = 0; i < data.Length; i += 16) programmed[(address + i) / 16] = true;
             Invalidate(address, data.Length);
@@ -109,6 +125,7 @@ namespace Antmicro.Renode.Peripherals.MTD
                     }
         }
         private readonly byte[] bytes = new byte[0x80000];
+        private readonly bool[] corrupt = new bool[0x80000 / 16];
         private readonly bool[] programmed = new bool[0x80000 / 16];
         private readonly IMachine machine;
     }
@@ -146,7 +163,7 @@ namespace Antmicro.Renode.Peripherals.MTD
                 if(address + 16 > (ulong)memory.Size) { values[0xFE0] |= 6; return; }
                 var data = memory.ReadRaw((int)address, 16);
                 for(var i = 0; i < 4; i++) values[0x80 + i * 4] = BitConverter.ToUInt32(data, i * 4);
-                values[0xFE0] |= memory.IsProgrammed((int)address) ? 4U : 12U;
+                values[0xFE0] |= memory.IsEccReadable((int)address) ? 4U : 12U;
                 return;
             case 4: // erase inclusive range of 512-byte pages
                 address &= ~511UL;
@@ -167,7 +184,13 @@ namespace Antmicro.Renode.Peripherals.MTD
             case 12: // program page, including its ECC validity
                 address &= ~511UL;
                 if(address + 512 > (ulong)memory.Size) { values[0xFE0] |= 6; return; }
-                values[0xFE0] |= memory.Program((int)address, page) ? 4U : 5U;
+                if(memory.Program((int)address, page))
+                    values[0xFE0] |= 4;
+                else
+                {
+                    this.Log(LogLevel.Warning, "Flash program rejected on non-erased page 0x{0:X}", address);
+                    values[0xFE0] |= 5;
+                }
                 return;
             }
             // Unknown commands must not silently acknowledge success.

@@ -77,6 +77,7 @@ async def run(configuration):
         flash_regions=regions,
         bootloader=boot,
         check_interval_us=125,
+        simulate_overprogram_ecc_fault=configuration.get("simulate_overprogram_ecc_fault", True),
     ) as keyboard:
         matrix = keyboard.attach_matrix()
         buttons = keyboard.attach_buttons()

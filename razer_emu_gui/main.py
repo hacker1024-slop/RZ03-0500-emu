@@ -296,6 +296,12 @@ def main(argv=None):
         metavar="PORT",
         help="Export USB to a guest instead of consuming reports locally",
     )
+    parser.add_argument(
+        "--simulate-overprogram-ecc-fault",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Inject an unreadable flash page when firmware programs it without erasing (default: on)",
+    )
     args = parser.parse_args(argv)
     if args.usbip is not None and not 1 <= args.usbip <= 65535:
         parser.error("USB/IP port must be between 1 and 65535")
@@ -306,6 +312,7 @@ def main(argv=None):
     app = QGuiApplication([sys.argv[0]])
     app.setApplicationName("Razer Keyboard Emulator")
     configuration = {
+        "simulate_overprogram_ecc_fault": args.simulate_overprogram_ecc_fault,
         "firmware": args.firmware,
         "full_image": args.full_image,
         "flash_dumps": args.flash_dump,

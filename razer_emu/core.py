@@ -70,6 +70,7 @@ class Keyboard:
         flash_regions=(),
         bootloader: Bootloader | None = None,
         check_interval_us: int = 10,
+        simulate_overprogram_ecc_fault: bool = True,
     ):
         if type(check_interval_us) is not int or not 1 <= check_interval_us <= 1000:
             raise ValueError("check_interval_us must be an integer from 1 to 1000")
@@ -152,6 +153,7 @@ class Keyboard:
             self.reset_generation = 0
 
             flash = self._machine.sysbus.flash.internal
+            flash.SimulateOverprogramEccFault = simulate_overprogram_ecc_fault
             for region in flash_regions:
                 flash.LoadRegion(
                     region.address,

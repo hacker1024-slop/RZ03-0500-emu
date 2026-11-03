@@ -142,6 +142,14 @@ python -m razer_emu_cli application.bin --bootloader-dump bootloader.bin --bootl
 The flag automatically enumerates the update device and also works with
 `--usbip 3240`.
 
+By default, a program command on a non-erased flash page reports failure and makes the
+page fault on ECC-checked reads and instruction fetches. Raw bytes remain
+available through controller reads, with invalid ECC reported. Erasing and
+programming the page restores readability. This is deterministic fault
+injection for a possible hardware outcome. Pass
+`--no-simulate-overprogram-ecc-fault` to the CLI or GUI to reject the program
+command while preserving the page’s existing ECC state.
+
 The GUI bundles an AI-generated image of the unlit keyboard. The overlaid colour indicators and translucent key highlights show the emulated controller output.
 
 Click the top half of the pictured volume wheel for volume up or the bottom half for volume down. The firmware decodes the electrical phases and applies its active profile. Left-click a key for a momentary press. Right-click to hold it down, then right-click again to release it. Toggled keys stay held when the window loses focus and release on pause or reset. Short clicks last at least 40 ms of virtual time for firmware debounce; visible feedback may lag wall time when emulation is slow. Releasing outside a key or losing focus releases momentary presses. The **Limit to 1×** checkbox is enabled by default and paces emulation against wall time in the GUI and over USB/IP. The UI displays virtual time and firmware-produced USB input reports, with pause/resume and reset controls. Renode executes in a separate owning process, keeping GUI rendering independent of firmware execution.

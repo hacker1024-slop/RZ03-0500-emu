@@ -71,6 +71,12 @@ def main(argv=None):
         metavar="BUS:ADDRESS",
         help="Attach a CHROMA 192-compatible I2C target, e.g. 4:0x50 (repeatable)",
     )
+    parser.add_argument(
+        "--simulate-overprogram-ecc-fault",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Inject an unreadable flash page when firmware programs it without erasing (default: on)",
+    )
     args = parser.parse_args(argv)
     if args.bootloader_mode and not args.bootloader_dump:
         parser.error("--bootloader-mode requires --bootloader-dump")
@@ -91,6 +97,7 @@ def main(argv=None):
             image,
             flash_regions=[FlashRegion.load_dump(p) for p in args.flash_dump],
             bootloader=Bootloader.load(args.bootloader_dump) if args.bootloader_dump else None,
+            simulate_overprogram_ecc_fault=args.simulate_overprogram_ecc_fault,
             check_interval_us=(
                 args.check_interval_us
                 if args.check_interval_us is not None
