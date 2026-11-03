@@ -60,6 +60,10 @@ class EmulatorBridge(QObject):
     def keys(self):
         return self.layout["keys"]
 
+    @Property("QVariantMap", constant=True)
+    def wheelRegion(self):
+        return self.layout["wheel"]
+
     @Property("QVariantMap", notify=changed)
     def colors(self):
         return self._colors
@@ -95,6 +99,10 @@ class EmulatorBridge(QObject):
     @Slot(int, bool)
     def key(self, index, pressed):
         self._send({"type": "key", "index": index, "pressed": pressed})
+
+    @Slot(int)
+    def turnWheel(self, direction):
+        self._send({"type": "wheel", "direction": direction})
 
     @Slot(int)
     def toggleKey(self, index):

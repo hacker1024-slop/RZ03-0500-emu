@@ -62,6 +62,25 @@ ApplicationWindow {
                 scale: Math.min(viewport.width / width, viewport.height / height)
                 anchors.centerIn: parent
                 Image { anchors.fill: parent; source: "../assets/keyboard-unlit.png" }
+                Column {
+                    objectName: "volumeWheel"
+                    x: emulator.wheelRegion.x; y: emulator.wheelRegion.y
+                    width: emulator.wheelRegion.width; height: emulator.wheelRegion.height
+                    enabled: emulator.running
+                    Repeater {
+                        model: [1, -1]
+                        delegate: MouseArea {
+                            required property int modelData
+                            width: emulator.wheelRegion.width
+                            height: emulator.wheelRegion.height / 2
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: emulator.turnWheel(modelData)
+                            ToolTip.visible: containsMouse
+                            ToolTip.text: modelData > 0 ? "Volume up" : "Volume down"
+                        }
+                    }
+                }
                 Repeater {
                     model: emulator.keys
                     delegate: Rectangle {

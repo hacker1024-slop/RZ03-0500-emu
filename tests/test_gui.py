@@ -43,11 +43,11 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
     reports = []
     bridge.usbReport.connect(lambda endpoint, data: reports.append((endpoint, data)))
 
-    def find_key(item):
-        if item.objectName() == "key_selA":
+    def find_item(item, name):
+        if item.objectName() == name:
             return item
         for child in item.childItems():
-            result = find_key(child)
+            result = find_item(child, name)
             if result is not None:
                 return result
         return None
@@ -61,7 +61,7 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
     try:
         bridge.start()
         wait_until(lambda: bridge.running)
-        key = find_key(window.contentItem())
+        key = find_item(window.contentItem(), "key_selA")
         assert key is not None
         position = key.mapToScene(QPointF(key.width() / 2, key.height() / 2)).toPoint()
         QTest.mouseClick(
@@ -84,6 +84,18 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
             window, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, position
         )
         wait_until(lambda: release in reports and not key.property("held"))
+        wheel = find_item(window.contentItem(), "volumeWheel")
+        assert wheel is not None
+        for fraction, usage in [(0.25, "e9"), (0.75, "ea")]:
+            reports.clear()
+            position = wheel.mapToScene(
+                QPointF(wheel.width() / 2, wheel.height() * fraction)
+            ).toPoint()
+            QTest.mouseClick(
+                window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, position
+            )
+            volume = (0x82, f"02{usage}" + "00" * 20)
+            wait_until(lambda: volume in reports)
         assert len(bridge.colors) == 83
         bridge.toggleRunning()
         wait_until(lambda: not bridge.running)

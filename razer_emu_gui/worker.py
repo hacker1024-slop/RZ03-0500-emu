@@ -6,6 +6,7 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 from razer_emu import Bootloader, Firmware, FlashRegion
@@ -13,6 +14,12 @@ from razer_emu.core import Keyboard
 from razer_emu.firmware import FLASH_APPLICATION, SRAM_SIZE
 
 from .layout import key_colors, load_layout
+
+# Start and end at idle. The firmware samples each phase for 5 ms.
+WHEEL_DOWN = ((True, False), (False, False), (False, True), (True, True))
+WHEEL_UP = tuple(reversed(WHEEL_DOWN[:-1])) + (WHEEL_DOWN[-1],)
+WHEEL_PHASE_US = 5000
+MAX_WHEEL_PHASES = 128
 
 
 def emit(message):
@@ -72,6 +79,7 @@ async def run(configuration):
     ) as keyboard:
         matrix = keyboard.attach_matrix()
         buttons = keyboard.attach_buttons()
+        encoder = keyboard.attach_encoder()
         chips = [keyboard.attach_lighting(c["bus"], c["address"]) for c in layout["controllers"]]
         enumeration = keyboard.usb.enumerate_device()
         exported = configuration.get("usbip")
@@ -95,6 +103,8 @@ async def run(configuration):
             from razer_emu.usbip import UsbIpServer
 
             transport = asyncio.create_task(UsbIpServer(keyboard, enumeration).serve(port=exported))
+        wheel_phases = deque()
+        next_phase = 0
         held, releases = {}, {}
         momentary, latched = set(), set()
         running = True
@@ -118,6 +128,12 @@ async def run(configuration):
                 del held[index]
                 releases.pop(index, None)
 
+        def clear_wheel():
+            nonlocal next_phase
+            wheel_phases.clear()
+            encoder.set_phases(True, True)
+            next_phase = 0
+
         while True:
             while not commands.empty():
                 command = commands.get_nowait()
@@ -129,6 +145,7 @@ async def run(configuration):
                     return
                 if kind == "reset" and not exported:
                     release_all()
+                    clear_wheel()
                     keyboard.reset()
                     enumeration = keyboard.usb.enumerate_device()
                     pump = start_polling()
@@ -138,6 +155,11 @@ async def run(configuration):
                     running = bool(command["value"])
                     if not running:
                         release_all()
+                        clear_wheel()
+                elif kind == "wheel" and running:
+                    cycle = WHEEL_UP if command["direction"] > 0 else WHEEL_DOWN
+                    if len(wheel_phases) + len(cycle) <= MAX_WHEEL_PHASES:
+                        wheel_phases.extend(cycle)
                 elif kind == "release_all":
                     release_all(keep_latched=True)
                 elif kind in ("key", "toggle_key") and running:
@@ -162,6 +184,11 @@ async def run(configuration):
             if transport and transport.done():
                 transport.result()
             if running:
+                if wheel_phases:
+                    elapsed = keyboard.state().elapsed_us
+                    if elapsed >= next_phase:
+                        encoder.set_phases(*wheel_phases.popleft())
+                        next_phase = elapsed + WHEEL_PHASE_US
                 state = keyboard.state() if exported else keyboard.run_for(5000, _usb_pump=pump)
                 if state.stopped_reason:
                     raise RuntimeError(
