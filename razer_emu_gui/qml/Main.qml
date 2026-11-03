@@ -106,6 +106,21 @@ ApplicationWindow {
                 scale: Math.min(viewport.width / width, viewport.height / height)
                 anchors.centerIn: parent
                 Image { anchors.fill: parent; source: "../assets/keyboard-unlit.png" }
+                Repeater {
+                    model: emulator.underglow
+                    delegate: Rectangle {
+                        required property int index
+                        required property var modelData
+                        objectName: modelData.id
+                        // Firmware lists the left and right strips in opposite directions.
+                        x: index < 9 ? 13 : board.width - width - 13
+                        y: 151 + (index < 9 ? 8 - index : index - 9) * 60
+                        width: 11
+                        height: 60
+                        color: emulator.colors[modelData.id] || "#000000"
+                        visible: color.r > 0 || color.g > 0 || color.b > 0
+                    }
+                }
                 Column {
                     objectName: "volumeWheel"
                     x: emulator.wheelRegion.x; y: emulator.wheelRegion.y

@@ -89,6 +89,10 @@ class EmulatorBridge(QObject):
     def keys(self):
         return self.layout["keys"]
 
+    @Property("QVariantList", constant=True)
+    def underglow(self):
+        return self.layout["underglow"]
+
     @Property("QVariantMap", constant=True)
     def wheelRegion(self):
         return self.layout["wheel"]

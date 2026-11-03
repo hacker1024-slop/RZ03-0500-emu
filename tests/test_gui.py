@@ -99,7 +99,8 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
             )
             volume = (0x82, f"02{usage}" + "00" * 20)
             wait_until(lambda: volume in reports)
-        assert len(bridge.colors) == 83
+        assert len(bridge.colors) == 101
+        assert find_item(window.contentItem(), "underglow17") is not None
         assert bridge.limitSpeed
         bridge.setLimitSpeed(False)
         assert not bridge.limitSpeed

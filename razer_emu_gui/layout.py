@@ -14,5 +14,5 @@ def key_colors(layout, snapshots):
     return {
         key["id"]: "#"
         + "".join(f"{round(levels[key['controller']][c] * 255):02x}" for c in key["rgb"])
-        for key in layout["keys"]
+        for key in (*layout["keys"], *layout["underglow"])
     }

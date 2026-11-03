@@ -43,6 +43,12 @@ def test_key_rgb_respects_channel_order_current_enable_and_shutdown():
     assert key_colors(layout, [masked, others, others])[key["id"]] == "#800020"
     off = LightingState(bytes(pwm), b"\xff" * 24, 128, True)
     assert key_colors(layout, [off, others, others])[key["id"]] == "#000000"
+    zone = layout["underglow"][0]
+    pwm = bytearray(192)
+    pwm[zone["rgb"][2]] = 255
+    side = LightingState(bytes(pwm), b"\xff" * 24, 255, False)
+    assert key_colors(layout, [others, others, side])[zone["id"]] == "#0000ff"
+
 
 
 def test_private_firmware_matches_every_gui_contact_and_rgb_record():
@@ -57,10 +63,12 @@ def test_private_firmware_matches_every_gui_contact_and_rgb_record():
         if key["matrix"] is not None:
             row, col = key["matrix"]
             contacts[row * 16 + col] = key["key_id"]
-        row, col = key["led_slot"]
+    assert len(layout["underglow"]) == 18
+    for light in (*layout["keys"], *layout["underglow"]):
+        row, col = light["led_slot"]
         offset = (row * 18 + col) * 7
-        led_fields[offset] = key["key_id"]
-        for index, value in enumerate([key["controller"], *key["rgb"]], start=3):
+        led_fields[offset] = light["key_id"]
+        for index, value in enumerate([light["controller"], *light["rgb"]], start=3):
             led_fields[offset + index] = value
 
     for fields in (contacts, led_fields):

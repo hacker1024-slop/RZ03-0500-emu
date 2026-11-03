@@ -17,6 +17,26 @@
       "address": 83
     }
   ],
+  "underglow": [
+    {"id": "underglow0", "key_id": 138, "led_slot": [6, 0], "controller": 2, "rgb": [16, 0, 32]},
+    {"id": "underglow1", "key_id": 137, "led_slot": [6, 1], "controller": 2, "rgb": [18, 2, 34]},
+    {"id": "underglow2", "key_id": 136, "led_slot": [6, 2], "controller": 2, "rgb": [20, 4, 36]},
+    {"id": "underglow3", "key_id": 135, "led_slot": [6, 3], "controller": 2, "rgb": [22, 6, 38]},
+    {"id": "underglow4", "key_id": 134, "led_slot": [6, 4], "controller": 2, "rgb": [24, 8, 40]},
+    {"id": "underglow5", "key_id": 133, "led_slot": [6, 5], "controller": 2, "rgb": [26, 10, 42]},
+    {"id": "underglow6", "key_id": 132, "led_slot": [6, 6], "controller": 2, "rgb": [28, 12, 44]},
+    {"id": "underglow7", "key_id": 131, "led_slot": [6, 7], "controller": 2, "rgb": [30, 14, 46]},
+    {"id": "underglow8", "key_id": 130, "led_slot": [6, 8], "controller": 2, "rgb": [78, 62, 94]},
+    {"id": "underglow9", "key_id": 139, "led_slot": [6, 9], "controller": 2, "rgb": [64, 48, 80]},
+    {"id": "underglow10", "key_id": 140, "led_slot": [6, 10], "controller": 2, "rgb": [112, 96, 128]},
+    {"id": "underglow11", "key_id": 141, "led_slot": [6, 11], "controller": 2, "rgb": [114, 98, 130]},
+    {"id": "underglow12", "key_id": 142, "led_slot": [6, 12], "controller": 2, "rgb": [116, 100, 132]},
+    {"id": "underglow13", "key_id": 143, "led_slot": [6, 13], "controller": 2, "rgb": [118, 102, 134]},
+    {"id": "underglow14", "key_id": 144, "led_slot": [6, 14], "controller": 2, "rgb": [120, 104, 136]},
+    {"id": "underglow15", "key_id": 145, "led_slot": [6, 15], "controller": 2, "rgb": [122, 106, 138]},
+    {"id": "underglow16", "key_id": 146, "led_slot": [6, 16], "controller": 2, "rgb": [124, 108, 140]},
+    {"id": "underglow17", "key_id": 147, "led_slot": [6, 17], "controller": 2, "rgb": [126, 110, 142]}
+  ],
   "keys": [
     {
       "id": "selEsc",
