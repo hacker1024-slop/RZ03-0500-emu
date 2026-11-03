@@ -1,0 +1,33 @@
+--- a/renode/renode_callbacks.c
++++ b/renode/renode_callbacks.c
+@@ -34,7 +34,29 @@
+ 
+ EXTERNAL_AS(uint64_t, ReadByteFromBus, tlib_read_byte, uint64_t, uint64_t)
+ EXTERNAL_AS(uint64_t, ReadWordFromBus, tlib_read_word, uint64_t, uint64_t)
+-EXTERNAL_AS(uint64_t, ReadDoubleWordFromBus, tlib_read_double_word, uint64_t, uint64_t)
++EXTERNAL_AS(uint64_t, ReadDoubleWordFromBus, tlib_read_double_word_managed, uint64_t, uint64_t)
++
++extern uint64_t tlib_get_total_executed_instructions(void);
++static uint64_t dwt_dispatch_origin, dwt_quantum;
++static uint32_t dwt_base;
++
++EXPORT_C void razer_configure_dwt(uint64_t origin, uint64_t quantum, uint32_t base)
++{
++    dwt_dispatch_origin = origin;
++    dwt_quantum = quantum;
++    dwt_base = base;
++}
++
++uint64_t tlib_read_double_word(uint64_t address, uint64_t cpustate)
++{
++    if(address == 0xe0001004 && dwt_quantum != 0) {
++        const uint64_t cycles = tlib_get_total_executed_instructions() - dwt_dispatch_origin;
++        const uint32_t value = dwt_base + (uint32_t)(cycles - cycles % dwt_quantum);
++        tlib_try_interrupt_translation_block();
++        return value;
++    }
++    return tlib_read_double_word_managed(address, cpustate);
++}
+ EXTERNAL_AS(uint64_t, ReadQuadWordFromBus, tlib_read_quad_word, uint64_t, uint64_t)
+ 
+ EXTERNAL_AS(void, WriteByteToBus, tlib_write_byte, uint64_t, uint64_t, uint64_t)

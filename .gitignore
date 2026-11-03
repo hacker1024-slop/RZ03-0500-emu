@@ -11,3 +11,5 @@ dist/
 captures/
 *.dll
 *.exe
+
+/.renode-native/

@@ -46,6 +46,25 @@ The Python bridge is pinned to a Git revision, so installation requires Git.
 Set `PYRENODE_PATH` to the Renode installation directory if the bridge cannot
 find it. Set `DOTNET_ROOT` to the compatible runtime if needed.
 
+### Build the optimized Renode runtime
+
+Firmware such as QMK reads the Cortex-M cycle counter in short delay loops.
+On Linux x86-64, the optional native backend combines ARM translation
+optimizations for stock firmware with direct cycle-counter reads for QMK.
+The cycle counter uses the same emulated cycle count.
+
+Build a separate runtime from a Renode 1.17.0 installation that includes the
+matching Cores source tree. The helper requires GCC, CMake, Ninja, and patch.
+
+```sh
+python tools/build_renode_native.py --renode /path/to/renode/lib/renode
+export PYRENODE_PATH="$PWD/.renode-native/runtime"
+```
+
+If your Renode package ships the sources separately, pass the Cores directory
+with `--source`. The installed Renode is left intact. The emulator also works
+with the regular Renode runtime.
+
 ### Load firmware
 
 The **Load firmware** menu accepts three forms.

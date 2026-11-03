@@ -1,0 +1,666 @@
+--- a/tlib/arch/arm/translate.c
++++ b/tlib/arch/arm/translate.c
+@@ -75,6 +75,7 @@
+ /* We reuse the same 64-bit temporaries for efficiency.  */
+ static TCGv_i64 cpu_V0, cpu_V1, cpu_M0;
+ static TCGv_i32 cpu_R[16];
++static TCGv_i32 cpu_NF, cpu_ZF, cpu_CF, cpu_VF;
+ static TCGv_i32 cpu_exclusive_val;
+ static TCGv_i32 cpu_exclusive_high;
+ 
+@@ -95,6 +96,10 @@
+ #ifdef TARGET_ARM64
+     cpu_pc = tcg_global_mem_new(TCG_AREG0, offsetof(CPUState, pc), "pc");
+ #endif
++    cpu_NF = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, NF), "NF");
++    cpu_ZF = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, ZF), "ZF");
++    cpu_CF = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, CF), "CF");
++    cpu_VF = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, VF), "VF");
+     cpu_exclusive_val = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, exclusive_val), "exclusive_val");
+     cpu_exclusive_high = tcg_global_mem_new_i32(TCG_AREG0, offsetof(CPUState, exclusive_high), "exclusive_high");
+ }
+@@ -427,7 +432,7 @@
+     tcg_temp_free_i32(t1);
+ }
+ 
+-#define gen_set_CF(var) tcg_gen_st_i32(var, cpu_env, offsetof(CPUState, CF))
++#define gen_set_CF(var) tcg_gen_mov_i32(cpu_CF, var)
+ 
+ /* Set CF to the top bit of var.  */
+ static void gen_set_CF_bit31(TCGv var)
+@@ -441,16 +446,73 @@
+ /* Set N and Z flags from var.  */
+ static inline void gen_logic_CC(TCGv var)
+ {
+-    tcg_gen_st_i32(var, cpu_env, offsetof(CPUState, NF));
+-    tcg_gen_st_i32(var, cpu_env, offsetof(CPUState, ZF));
+-}
++    tcg_gen_mov_i32(cpu_NF, var);
++    tcg_gen_mov_i32(cpu_ZF, var);
++}
++
++/* Copy a flag global to a caller-owned temporary, matching load_cpu_field. */
++static TCGv load_flag(TCGv value)
++{
++    TCGv result = tcg_temp_local_new_i32();
++    tcg_gen_mov_i32(result, value);
++    return result;
++}
++
++/* Exact helper formulas, expressed in TCG so overwritten flags can die. */
++static void gen_arithmetic_cc(TCGv destination, TCGv a, TCGv b, bool subtract, bool with_carry)
++{
++    TCGv result = tcg_temp_new_i32();
++    TCGv carry = tcg_temp_new_i32();
++    TCGv overflow = tcg_temp_new_i32();
++    TCGv temporary = tcg_temp_new_i32();
++    TCGv incoming = 0;
++    if(with_carry) {
++        incoming = tcg_temp_new_i32();
++        tcg_gen_setcondi_i32(TCG_COND_NE, incoming, cpu_CF, 0);
++    }
++    if(subtract) tcg_gen_sub_i32(result, a, b);
++    else tcg_gen_add_i32(result, a, b);
++    if(with_carry) {
++        if(subtract) tcg_gen_subi_i32(result, result, 1);
++        tcg_gen_add_i32(result, result, incoming);
++    }
++    tcg_gen_xor_i32(overflow, a, b);
++    if(!subtract) tcg_gen_not_i32(overflow, overflow);
++    tcg_gen_xor_i32(temporary, a, result);
++    tcg_gen_and_i32(overflow, overflow, temporary);
++    if(with_carry) {
++        tcg_gen_setcond_i32(subtract ? TCG_COND_GTU : TCG_COND_LTU,
++                           carry, subtract ? a : result, subtract ? b : a);
++        tcg_gen_setcond_i32(TCG_COND_EQ, temporary, subtract ? a : result, subtract ? b : a);
++        tcg_gen_and_i32(temporary, temporary, incoming);
++        tcg_gen_or_i32(carry, carry, temporary);
++    } else {
++        tcg_gen_setcond_i32(subtract ? TCG_COND_GEU : TCG_COND_LTU,
++                           carry, subtract ? a : result, subtract ? b : a);
++    }
++    gen_logic_CC(result);
++    tcg_gen_mov_i32(cpu_CF, carry);
++    tcg_gen_mov_i32(cpu_VF, overflow);
++    // Delay destination assignment until every input has been consumed.
++    tcg_gen_mov_i32(destination, result);
++    if(with_carry) tcg_temp_free_i32(incoming);
++    tcg_temp_free_i32(temporary);
++    tcg_temp_free_i32(overflow);
++    tcg_temp_free_i32(carry);
++    tcg_temp_free_i32(result);
++}
++
++#define gen_inline_add_cc(d, a, b) gen_arithmetic_cc(d, a, b, false, false)
++#define gen_inline_sub_cc(d, a, b) gen_arithmetic_cc(d, a, b, true, false)
++#define gen_inline_adc_cc(d, a, b) gen_arithmetic_cc(d, a, b, false, true)
++#define gen_inline_sbc_cc(d, a, b) gen_arithmetic_cc(d, a, b, true, true)
+ 
+ /* T0 += T1 + CF.  */
+ static void gen_adc(TCGv t0, TCGv t1)
+ {
+     TCGv tmp;
+     tcg_gen_add_i32(t0, t0, t1);
+-    tmp = load_cpu_field(CF);
++    tmp = load_flag(cpu_CF);
+     tcg_gen_add_i32(t0, t0, tmp);
+     tcg_temp_free_i32(tmp);
+ }
+@@ -460,7 +522,7 @@
+ {
+     TCGv tmp;
+     tcg_gen_add_i32(dest, t0, t1);
+-    tmp = load_cpu_field(CF);
++    tmp = load_flag(cpu_CF);
+     tcg_gen_add_i32(dest, dest, tmp);
+     tcg_temp_free_i32(tmp);
+ }
+@@ -470,7 +532,7 @@
+ {
+     TCGv tmp;
+     tcg_gen_sub_i32(dest, t0, t1);
+-    tmp = load_cpu_field(CF);
++    tmp = load_flag(cpu_CF);
+     tcg_gen_add_i32(dest, dest, tmp);
+     tcg_gen_subi_i32(dest, dest, 1);
+     tcg_temp_free_i32(tmp);
+@@ -540,7 +602,7 @@
+                 tcg_gen_rotri_i32(var, var, shift);
+                 break;
+             } else {
+-                TCGv tmp = load_cpu_field(CF);
++                TCGv tmp = load_flag(cpu_CF);
+                 if(flags) {
+                     shifter_out_im(var, 0);
+                 }
+@@ -714,85 +776,85 @@
+ 
+     switch(cc) {
+         case 0: /* eq: Z */
+-            tmp = load_cpu_field(ZF);
++            tmp = load_flag(cpu_ZF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, label);
+             break;
+         case 1: /* ne: !Z */
+-            tmp = load_cpu_field(ZF);
++            tmp = load_flag(cpu_ZF);
+             tcg_gen_brcondi_i32(TCG_COND_NE, tmp, 0, label);
+             break;
+         case 2: /* cs: C */
+-            tmp = load_cpu_field(CF);
++            tmp = load_flag(cpu_CF);
+             tcg_gen_brcondi_i32(TCG_COND_NE, tmp, 0, label);
+             break;
+         case 3: /* cc: !C */
+-            tmp = load_cpu_field(CF);
++            tmp = load_flag(cpu_CF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, label);
+             break;
+         case 4: /* mi: N */
+-            tmp = load_cpu_field(NF);
++            tmp = load_flag(cpu_NF);
+             tcg_gen_brcondi_i32(TCG_COND_LT, tmp, 0, label);
+             break;
+         case 5: /* pl: !N */
+-            tmp = load_cpu_field(NF);
++            tmp = load_flag(cpu_NF);
+             tcg_gen_brcondi_i32(TCG_COND_GE, tmp, 0, label);
+             break;
+         case 6: /* vs: V */
+-            tmp = load_cpu_field(VF);
++            tmp = load_flag(cpu_VF);
+             tcg_gen_brcondi_i32(TCG_COND_LT, tmp, 0, label);
+             break;
+         case 7: /* vc: !V */
+-            tmp = load_cpu_field(VF);
++            tmp = load_flag(cpu_VF);
+             tcg_gen_brcondi_i32(TCG_COND_GE, tmp, 0, label);
+             break;
+         case 8: /* hi: C && !Z */
+             inv = gen_new_label();
+-            tmp = load_cpu_field(CF);
++            tmp = load_flag(cpu_CF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, inv);
+             tcg_temp_free_i32(tmp);
+-            tmp = load_cpu_field(ZF);
++            tmp = load_flag(cpu_ZF);
+             tcg_gen_brcondi_i32(TCG_COND_NE, tmp, 0, label);
+             gen_set_label(inv);
+             break;
+         case 9: /* ls: !C || Z */
+-            tmp = load_cpu_field(CF);
++            tmp = load_flag(cpu_CF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, label);
+             tcg_temp_free_i32(tmp);
+-            tmp = load_cpu_field(ZF);
++            tmp = load_flag(cpu_ZF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, label);
+             break;
+         case 10: /* ge: N == V -> N ^ V == 0 */
+-            tmp = load_cpu_field(VF);
+-            tmp2 = load_cpu_field(NF);
++            tmp = load_flag(cpu_VF);
++            tmp2 = load_flag(cpu_NF);
+             tcg_gen_xor_i32(tmp, tmp, tmp2);
+             tcg_temp_free_i32(tmp2);
+             tcg_gen_brcondi_i32(TCG_COND_GE, tmp, 0, label);
+             break;
+         case 11: /* lt: N != V -> N ^ V != 0 */
+-            tmp = load_cpu_field(VF);
+-            tmp2 = load_cpu_field(NF);
++            tmp = load_flag(cpu_VF);
++            tmp2 = load_flag(cpu_NF);
+             tcg_gen_xor_i32(tmp, tmp, tmp2);
+             tcg_temp_free_i32(tmp2);
+             tcg_gen_brcondi_i32(TCG_COND_LT, tmp, 0, label);
+             break;
+         case 12: /* gt: !Z && N == V */
+             inv = gen_new_label();
+-            tmp = load_cpu_field(ZF);
++            tmp = load_flag(cpu_ZF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, inv);
+             tcg_temp_free_i32(tmp);
+-            tmp = load_cpu_field(VF);
+-            tmp2 = load_cpu_field(NF);
++            tmp = load_flag(cpu_VF);
++            tmp2 = load_flag(cpu_NF);
+             tcg_gen_xor_i32(tmp, tmp, tmp2);
+             tcg_temp_free_i32(tmp2);
+             tcg_gen_brcondi_i32(TCG_COND_GE, tmp, 0, label);
+             gen_set_label(inv);
+             break;
+         case 13: /* le: Z || N != V */
+-            tmp = load_cpu_field(ZF);
++            tmp = load_flag(cpu_ZF);
+             tcg_gen_brcondi_i32(TCG_COND_EQ, tmp, 0, label);
+             tcg_temp_free_i32(tmp);
+-            tmp = load_cpu_field(VF);
+-            tmp2 = load_cpu_field(NF);
++            tmp = load_flag(cpu_VF);
++            tmp2 = load_flag(cpu_NF);
+             tcg_gen_xor_i32(tmp, tmp, tmp2);
+             tcg_temp_free_i32(tmp2);
+             tcg_gen_brcondi_i32(TCG_COND_LT, tmp, 0, label);
+@@ -3092,9 +3154,9 @@
+ {
+     uint32_t cc = extract32(insn, 20, 2);
+ 
+-    TCGv cpu_zf = load_cpu_field(ZF);
+-    TCGv cpu_vf = load_cpu_field(VF);
+-    TCGv cpu_nf = load_cpu_field(NF);
++    TCGv cpu_zf = load_flag(cpu_ZF);
++    TCGv cpu_vf = load_flag(cpu_VF);
++    TCGv cpu_nf = load_flag(cpu_NF);
+ 
+     if(precision == DOUBLE_PRECISION) {
+         TCGv_i64 frn, frm, dest;
+@@ -4330,10 +4392,14 @@
+ 
+ static inline void gen_goto_tb(DisasContext *s, int n, uint32_t dest)
+ {
+-    TranslationBlock *tb;
+-
+-    tb = s->base.tb;
+-    if((tb->pc & TARGET_PAGE_MASK) == (dest & TARGET_PAGE_MASK)) {
++    TranslationBlock *tb = s->base.tb;
++    bool same_page = (tb->pc & TARGET_PAGE_MASK) == (dest & TARGET_PAGE_MASK);
++    bool physical_mcu = false;
++#ifdef TARGET_PROTO_ARM_M
++    physical_mcu = arm_feature(cpu, ARM_FEATURE_V8);
++#endif
++    if(same_page || physical_mcu) {
++        if(!same_page) tb->cross_page_mask |= 1U << n;
+         tcg_gen_goto_tb(n);
+         gen_set_pc_im(dest);
+         gen_exit_tb(tb, n);
+@@ -8520,11 +8586,11 @@
+                     if(s->user) {
+                         goto illegal_op;
+                     }
+-                    gen_helper_sub_cc(tmp, tmp, tmp2);
++                    gen_inline_sub_cc(tmp, tmp, tmp2);
+                     gen_exception_return(s, tmp);
+                 } else {
+                     if(set_cc) {
+-                        gen_helper_sub_cc(tmp, tmp, tmp2);
++                        gen_inline_sub_cc(tmp, tmp, tmp2);
+                     } else {
+                         tcg_gen_sub_i32(tmp, tmp, tmp2);
+                     }
+@@ -8533,7 +8599,7 @@
+                 break;
+             case 0x03:
+                 if(set_cc) {
+-                    gen_helper_sub_cc(tmp, tmp2, tmp);
++                    gen_inline_sub_cc(tmp, tmp2, tmp);
+                 } else {
+                     tcg_gen_sub_i32(tmp, tmp2, tmp);
+                 }
+@@ -8541,7 +8607,7 @@
+                 break;
+             case 0x04:
+                 if(set_cc) {
+-                    gen_helper_add_cc(tmp, tmp, tmp2);
++                    gen_inline_add_cc(tmp, tmp, tmp2);
+                 } else {
+                     tcg_gen_add_i32(tmp, tmp, tmp2);
+                 }
+@@ -8587,13 +8653,13 @@
+                 break;
+             case 0x0a:
+                 if(set_cc) {
+-                    gen_helper_sub_cc(tmp, tmp, tmp2);
++                    gen_inline_sub_cc(tmp, tmp, tmp2);
+                 }
+                 tcg_temp_free_i32(tmp);
+                 break;
+             case 0x0b:
+                 if(set_cc) {
+-                    gen_helper_add_cc(tmp, tmp, tmp2);
++                    gen_inline_add_cc(tmp, tmp, tmp2);
+                 }
+                 tcg_temp_free_i32(tmp);
+                 break;
+@@ -9446,7 +9512,7 @@
+             break;
+         case 8: /* add */
+             if(conds) {
+-                gen_helper_add_cc(t0, t0, t1);
++                gen_inline_add_cc(t0, t0, t1);
+             } else {
+                 tcg_gen_add_i32(t0, t0, t1);
+             }
+@@ -9467,14 +9533,14 @@
+             break;
+         case 13: /* sub */
+             if(conds) {
+-                gen_helper_sub_cc(t0, t0, t1);
++                gen_inline_sub_cc(t0, t0, t1);
+             } else {
+                 tcg_gen_sub_i32(t0, t0, t1);
+             }
+             break;
+         case 14: /* rsb */
+             if(conds) {
+-                gen_helper_sub_cc(t0, t1, t0);
++                gen_inline_sub_cc(t0, t1, t0);
+             } else {
+                 tcg_gen_sub_i32(t0, t1, t0);
+             }
+@@ -15708,13 +15774,13 @@
+                     if(s->condexec_mask) {
+                         tcg_gen_sub_i32(tmp, tmp, tmp2);
+                     } else {
+-                        gen_helper_sub_cc(tmp, tmp, tmp2);
++                        gen_inline_sub_cc(tmp, tmp, tmp2);
+                     }
+                 } else {
+                     if(s->condexec_mask) {
+                         tcg_gen_add_i32(tmp, tmp, tmp2);
+                     } else {
+-                        gen_helper_add_cc(tmp, tmp, tmp2);
++                        gen_inline_add_cc(tmp, tmp, tmp2);
+                     }
+                 }
+                 tcg_temp_free_i32(tmp2);
+@@ -15749,7 +15815,7 @@
+                 tcg_gen_movi_i32(tmp2, insn & 0xff);
+                 switch(op) {
+                     case 1: /* cmp */
+-                        gen_helper_sub_cc(tmp, tmp, tmp2);
++                        gen_inline_sub_cc(tmp, tmp, tmp2);
+                         tcg_temp_free_i32(tmp);
+                         tcg_temp_free_i32(tmp2);
+                         break;
+@@ -15757,7 +15823,7 @@
+                         if(s->condexec_mask) {
+                             tcg_gen_add_i32(tmp, tmp, tmp2);
+                         } else {
+-                            gen_helper_add_cc(tmp, tmp, tmp2);
++                            gen_inline_add_cc(tmp, tmp, tmp2);
+                         }
+                         tcg_temp_free_i32(tmp2);
+                         store_reg(s, rd, tmp);
+@@ -15766,7 +15832,7 @@
+                         if(s->condexec_mask) {
+                             tcg_gen_sub_i32(tmp, tmp, tmp2);
+                         } else {
+-                            gen_helper_sub_cc(tmp, tmp, tmp2);
++                            gen_inline_sub_cc(tmp, tmp, tmp2);
+                         }
+                         tcg_temp_free_i32(tmp2);
+                         store_reg(s, rd, tmp);
+@@ -15803,7 +15869,7 @@
+                     case 1: /* cmp */
+                         tmp = load_reg(s, rd);
+                         tmp2 = load_reg(s, rm);
+-                        gen_helper_sub_cc(tmp, tmp, tmp2);
++                        gen_inline_sub_cc(tmp, tmp, tmp2);
+                         tcg_temp_free_i32(tmp2);
+                         tcg_temp_free_i32(tmp);
+                         break;
+@@ -15948,15 +16014,15 @@
+                     if(s->condexec_mask) {
+                         tcg_gen_neg_i32(tmp, tmp2);
+                     } else {
+-                        gen_helper_sub_cc(tmp, tmp, tmp2);
++                        gen_inline_sub_cc(tmp, tmp, tmp2);
+                     }
+                     break;
+                 case 0xa: /* cmp */
+-                    gen_helper_sub_cc(tmp, tmp, tmp2);
++                    gen_inline_sub_cc(tmp, tmp, tmp2);
+                     rd = 16;
+                     break;
+                 case 0xb: /* cmn */
+-                    gen_helper_add_cc(tmp, tmp, tmp2);
++                    gen_inline_add_cc(tmp, tmp, tmp2);
+                     rd = 16;
+                     break;
+                 case 0xc: /* orr */
+--- a/tlib/arch/arm/arch_exports.c
++++ b/tlib/arch/arm/arch_exports.c
+@@ -202,6 +202,7 @@
+ 
+ void tlib_set_security_state(uint32_t state)
+ {
++    tb_unlink_cross_page_jumps();
+     /* Update information about TrustZone support here
+      * this is required to turn TZ support on in the core and is a bit hackish
+      * since we don't have this information available during first cpu_init
+--- a/tlib/include/exec-all.h
++++ b/tlib/include/exec-all.h
+@@ -152,6 +152,7 @@
+     struct TranslationBlock *jmp_first;
+     //  the type of this field needs to match the TCG-generated access in `gen_update_instructions_count` in translate-all.c
+     uint32_t icount;
++    uint8_t cross_page_mask; /* exits requiring unlink on address-space changes */
+     bool was_cut;
+     //  this field is used to keep track of the previous value of size, i.e., it shows the size of translation block without the
+     //  last instruction; used by a blockend hook
+@@ -201,6 +202,8 @@
+ void tb_flush(CPUState *env);
+ void tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_page1, tb_page_addr_t phys_page2);
+ void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr);
++void tb_unlink_cross_page_jumps(void);
++bool tb_cross_page_link_allowed(void);
+ 
+ extern TranslationBlock *tb_phys_hash[CODE_GEN_PHYS_HASH_SIZE];
+ 
+@@ -267,6 +270,7 @@
+ static inline void tb_add_jump(TranslationBlock *tb, int n, TranslationBlock *tb_next)
+ {
+     tlib_assert(tb != NULL);
++    if((tb->cross_page_mask & (1U << n)) && !tb_cross_page_link_allowed()) return;
+ 
+     /* NOTE: this test is only needed for thread safety */
+     if(!tb->jmp_next[n]) {
+--- a/tlib/exec.c
++++ b/tlib/exec.c
+@@ -568,6 +568,35 @@
+ static inline void tb_reset_jump(TranslationBlock *tb, int n)
+ {
+     tb_set_jmp_target(tb, n, (uintptr_t)(tb->tc_ptr + tb->tb_next_offset[n]));
++}
++
++/* Same-page links remain valid after a TLB flush because re-entering their
++ * page validates its mapping. Cross-page links must be looked up again. */
++
++bool tb_cross_page_link_allowed(void)
++{
++#ifdef TARGET_PROTO_ARM_M
++    return arm_feature(cpu, ARM_FEATURE_V8) && !cpu->v7m.has_trustzone &&
++        !cpu->external_mmu_position && !cpu->external_mmu_window_count &&
++        !(cpu->cp15.c1_sys & 1) && !(cpu->pmsav8[0].ctrl & 1) && !(cpu->pmsav8[1].ctrl & 1) &&
++        !cpu->cp15.c13_fcse && !cpu->chaining_disabled && !cpu->tb_cache_disabled &&
++        !cpu->block_finished_hook_present && !cpu->block_begin_hook_present;
++#else
++    return false;
++#endif
++}
++
++void tb_unlink_cross_page_jumps(void)
++{
++    for(int i = 0; i < nb_tbs; ++i) {
++        TranslationBlock *tb = &tbs[i];
++        for(int n = 0; n < 2; ++n) {
++            if((tb->cross_page_mask & (1U << n)) && tb->jmp_next[n]) {
++                tb_jmp_remove(tb, n);
++                tb_reset_jump(tb, n);
++            }
++        }
++    }
+ }
+ 
+ void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr)
+@@ -1441,6 +1470,7 @@
+    implemented yet) */
+ void tlb_flush(CPUState *env, int flush_global, bool from_generated_code)
+ {
++    tb_unlink_cross_page_jumps();
+     if(!from_generated_code) {
+         /* must reset current TB so that interrupts cannot modify the
+            links while we are modifying them */
+@@ -1467,6 +1497,7 @@
+ 
+ void tlb_flush_masked(CPUState *env, uint32_t mmu_indexes_mask)
+ {
++    tb_unlink_cross_page_jumps();
+     /* must reset current TB so that interrupts cannot modify the
+        links while we are modifying them */
+     env->current_tb = NULL;
+@@ -1483,6 +1514,7 @@
+ 
+ void tlb_flush_page_masked(CPUState *env, target_ulong addr, uint32_t mmu_indexes_mask, bool from_generated_code)
+ {
++    tb_unlink_cross_page_jumps();
+     int i;
+     int mmu_idx;
+ 
+--- a/tlib/exports.c
++++ b/tlib/exports.c
+@@ -454,6 +454,7 @@
+ 
+ void tlib_register_access_flags_for_range(uint64_t start_address, uint64_t length, uint32_t is_executable_io_mem)
+ {
++    tb_unlink_cross_page_jumps();
+     PhysPageDescFlags flags = {
+         .executable_io_mem = is_executable_io_mem ? true : false,
+     };
+@@ -471,6 +472,7 @@
+ 
+ uint32_t tlib_enable_external_permission_handler_for_range(uint64_t start_address, uint64_t length, uint32_t external_permissions)
+ {
++    tb_unlink_cross_page_jumps();
+     PhysPageDesc *pd;
+ 
+     uint64_t addr = start_address;
+@@ -661,6 +663,7 @@
+ 
+ void tlib_set_chaining_enabled(uint32_t val)
+ {
++    tb_unlink_cross_page_jumps();
+     cpu->chaining_disabled = !val;
+ }
+ 
+@@ -675,6 +678,7 @@
+ 
+ void tlib_set_tb_cache_enabled(uint32_t val)
+ {
++    tb_unlink_cross_page_jumps();
+     cpu->tb_cache_disabled = !val;
+ }
+ 
+@@ -703,6 +707,7 @@
+ 
+ void tlib_set_block_finished_hook_present(uint32_t val)
+ {
++    tb_unlink_cross_page_jumps();
+     cpu->block_finished_hook_present = !!val;
+ }
+ 
+@@ -710,6 +715,7 @@
+ 
+ void tlib_set_block_begin_hook_present(uint32_t val)
+ {
++    tb_unlink_cross_page_jumps();
+     cpu->block_begin_hook_present = !!val;
+ }
+ 
+@@ -1012,6 +1018,7 @@
+ 
+ void tlib_enable_external_window_mmu(uint32_t value)
+ {
++    tb_unlink_cross_page_jumps();
+ #if !(defined(TARGET_RISCV) || defined(TARGET_ARM) || defined(TARGET_ARM64))
+     tlib_printf(LOG_LEVEL_WARNING, "Enabled the external MMU. Please note that this feature is experimental on this platform");
+ #endif
+@@ -1021,6 +1028,7 @@
+ 
+ void tlib_reset_mmu_window(uint64_t id)
+ {
++    tb_unlink_cross_page_jumps();
+     ExtMmuRange *window = ENSURE_WINDOW_BY_ID(id);
+     ptrdiff_t index = window - cpu->external_mmu_windows;
+     ptrdiff_t elements_to_move = cpu->external_mmu_window_count - index - 1;
+@@ -1033,6 +1041,7 @@
+ 
+ void tlib_reset_mmu_windows_covering_address(uint64_t address)
+ {
++    tb_unlink_cross_page_jumps();
+     //  NB. assumes that a window starting earlier cannot end later (for example because all windows have equal size)
+     ExtMmuRange *mmu_windows = env->external_mmu_windows;
+     int last_to_remove = find_last_mmu_window_possibly_covering(address);
+@@ -1066,6 +1075,7 @@
+ 
+ void tlib_reset_all_mmu_windows(void)
+ {
++    tb_unlink_cross_page_jumps();
+     cpu->external_mmu_window_count = 0;
+ }
+ 
+@@ -1073,6 +1083,7 @@
+ 
+ uint64_t tlib_acquire_mmu_window(uint32_t type)
+ {
++    tb_unlink_cross_page_jumps();
+     ASSERT_EXTERNAL_MMU_ENABLED
+ 
+     if(cpu->external_mmu_window_count >= cpu->external_mmu_window_capacity) {
+@@ -1101,6 +1112,7 @@
+ 
+ void tlib_set_mmu_window_start(uint64_t id, uint64_t addr_start)
+ {
++    tb_unlink_cross_page_jumps();
+     ASSERT_EXTERNAL_MMU_ENABLED
+     ExtMmuRange *window = ENSURE_WINDOW_BY_ID(id);
+     ASSERT_ALIGNED_TO_PAGE_SIZE(addr_start)
+@@ -1114,6 +1126,7 @@
+ 
+ void tlib_set_mmu_window_end(uint64_t id, uint64_t addr_end, uint32_t range_end_inclusive)
+ {
++    tb_unlink_cross_page_jumps();
+     ASSERT_EXTERNAL_MMU_ENABLED
+     ExtMmuRange *window = ENSURE_WINDOW_BY_ID(id);
+     ASSERT_ALIGNED_TO_PAGE_SIZE(range_end_inclusive ? addr_end + 1 : addr_end)
+@@ -1133,6 +1146,7 @@
+ 
+ void tlib_set_window_privileges(uint64_t id, int32_t privileges)
+ {
++    tb_unlink_cross_page_jumps();
+     ASSERT_EXTERNAL_MMU_ENABLED
+     ENSURE_WINDOW_BY_ID(id)->priv = privileges;
+ }
+@@ -1140,6 +1154,7 @@
+ 
+ void tlib_set_mmu_window_addend(uint64_t id, uint64_t addend)
+ {
++    tb_unlink_cross_page_jumps();
+     ASSERT_EXTERNAL_MMU_ENABLED
+     ENSURE_WINDOW_BY_ID(id)->addend = addend;
+ }
+@@ -1250,3 +1265,5 @@
+ 
+ //  No exception wrapper for performance reasons, any callbacks called by cpu_get_state_for_memory_transaction
+ //  must not let exceptions propagate
++
++/* Prototype diagnostics: counts only, no changes to guest-visible state. */
+--- a/renode/renode_memory.c
++++ b/renode/renode_memory.c
+@@ -11,6 +11,8 @@
+ #include "../tlib/include/unwind.h"
+ 
+ EXTERNAL(void, touch_host_block, uint64_t)
++
++extern void tb_unlink_cross_page_jumps(void);
+ 
+ typedef struct {
+   uint64_t start;
+@@ -109,6 +111,7 @@
+ 
+ void renode_set_host_blocks(host_memory_block_packed_t *blocks, int count)
+ {
++  tb_unlink_cross_page_jumps();
+   int i;
+   host_memory_block_lists_t *old_mappings;
+   host_memory_block_lists_t *new_mappings;
