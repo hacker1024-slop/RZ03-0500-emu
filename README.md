@@ -24,7 +24,10 @@ python -m pip install -e '.[dev]'
 
 The Python bridge is pinned to an upstream Git revision because its current Renode runtime-loader support is needed. Git must be available during installation. If Renode is not discovered automatically, set `PYRENODE_PATH` to its installation directory; consult pyrenode3's installation instructions. `DOTNET_ROOT` must select the runtime required by that installation.
 
-On NixOS, `nix-shell` provides the system dependencies and environment variables. Create a virtual environment and install this package inside that shell. `shell.nix` uses your configured nixpkgs; it is not a lock file.
+On NixOS, enter `nix-shell` from this checkout. It provides Renode, pyrenode3,
+PySide6 and the required environment variables. Run `python -m razer_emu_gui`
+or `python -m razer_emu_cli` directly from the checkout. `shell.nix` uses your
+configured nixpkgs.
 
 ## Headless execution
 
