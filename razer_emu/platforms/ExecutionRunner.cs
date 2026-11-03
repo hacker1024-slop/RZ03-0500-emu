@@ -61,7 +61,7 @@ namespace Antmicro.Renode.Utilities
             RazerChroma192[] lighting, Func<TimeInterval, TimeInterval> service)
         {
             LastElapsedUs = 0;
-            (cpu as RazerCortexM)?.PrepareWatchdogFastPath(service == null ||
+            (cpu as RazerCortexM)?.PrepareFastPeripheralAccess(service == null ||
                 (service.Target is RazerUsbInterruptPump pump && service == pump.ScheduledServiceHook));
             if(duration == 0) throw new ArgumentOutOfRangeException(nameof(duration));
             var source = emulation.MasterTimeSource;

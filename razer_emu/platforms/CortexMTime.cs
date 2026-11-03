@@ -9,6 +9,7 @@ using Antmicro.Renode.Time;
 using Antmicro.Renode.Peripherals.Bus;
 using Antmicro.Renode.Peripherals.Bus.Wrappers;
 using Antmicro.Renode.Peripherals;
+using Antmicro.Renode.Peripherals.Miscellaneous;
 using Antmicro.Renode.Utilities.Binding;
 namespace Antmicro.Renode.Peripherals.CPU
 {
@@ -19,14 +20,32 @@ namespace Antmicro.Renode.Peripherals.CPU
         public void ConfigureWatchdogFastPath(IDoubleWordPeripheral watchdog) { fastWatchdog = watchdog; }
         public ulong FastWatchdogWrites { get; private set; }
         public bool WatchdogFastPathEnabled { get; set; } = true;
-        public void PrepareWatchdogFastPath(bool allowCachedDispatch = true)
+        public void PrepareFastPeripheralAccess(bool allowCachedDispatch = true)
         {
             fastNonsecure = fastSecure = null;
-            if(!allowCachedDispatch || !WatchdogFastPathEnabled || fastWatchdog == null || UpdateContextOnLoadAndStore || TrustZoneEnabled || ExternalMmuWindowsCount != 0 || HasInstrumentation()) return;
+            fastDwt = null;
+            if(!allowCachedDispatch || UpdateContextOnLoadAndStore || TrustZoneEnabled || ExternalMmuWindowsCount != 0 || HasInstrumentation()) return;
             if(!(boardMachine is Machine machine) || machine.GdbStubs.Count != 0 || machine.Profiler != null || !(machine.SystemBus is SystemBus bus)) return;
-            if(!bus.IsPeripheralEnabled((IPeripheral)fastWatchdog) || HasBusInstrumentation(bus)) return;
-            fastNonsecure = ResolveFastAccess(bus, 0x4000C008);
-            fastSecure = ResolveFastAccess(bus, 0x5000C008);
+            if(HasBusInstrumentation(bus)) return;
+            if(WatchdogFastPathEnabled && fastWatchdog != null && bus.IsPeripheralEnabled((IPeripheral)fastWatchdog))
+            {
+                fastNonsecure = ResolveFastAccess(bus, 0x4000C008);
+                fastSecure = ResolveFastAccess(bus, 0x5000C008);
+            }
+
+            const ulong counterAddress = 0xE0001004;
+            foreach(var tag in bus.Tags) if(tag.Key.Contains(counterAddress)) return;
+            if(CheckExternalPermissions(counterAddress) != 0 &&
+                !bus.IsAddressRangeLocked(new Antmicro.Renode.Core.Range(counterAddress, 4), this) &&
+                !bus.TryGetWatchpointsAt(counterAddress, Access.Read, out _) &&
+                bus.WhatPeripheralIsAt(counterAddress, this) is RazerDwt dwt &&
+                bus.IsPeripheralEnabled(dwt) &&
+                findAccess(bus, counterAddress, this, out var counter, out var start, out var offset, null) &&
+                counterAddress - start + offset == 4 && counter.SetAbsoluteAddress == null &&
+                ReferenceEquals(counter.ReadDoubleWord.Target, dwt))
+            {
+                fastDwt = dwt;
+            }
         }
         private bool HasInstrumentation()
         {
@@ -87,6 +106,40 @@ namespace Antmicro.Renode.Peripherals.CPU
             }
             base.WriteDoubleWordToBus(address, value, cpuState);
         }
+        [Export]
+        protected new ulong ReadDoubleWordFromBus(ulong address, ulong cpuState)
+        {
+            if(address == 0xE0001004 && fastDwt != null && IsExecutingContinuously &&
+                !UpdateContextOnLoadAndStore)
+            {
+                var value = fastDwt.ReadCycleCounter(this);
+                if(fastDwt.CanAdvanceWith(this) && ConfigureNativeDwt != null)
+                {
+                    // Renode reports time in whole dispatch quanta. Use the
+                    // same rounding in the native MMIO callback.
+                    var cycles = ExecutedInstructions - dispatchNativeTotal + dispatchResiduum;
+                    var rounded = cycles - cycles % dispatchCycleQuantum;
+                    ConfigureNativeDwt(unchecked(dispatchNativeTotal - dispatchResiduum),
+                        dispatchCycleQuantum, unchecked(value - (uint)rounded));
+                    nativeDwtActive = true;
+                }
+                return value;
+            }
+            return base.ReadDoubleWordFromBus(address, cpuState);
+        }
+
+        internal void InvalidateNativeDwt()
+        {
+            if(!nativeDwtActive) return;
+            ConfigureNativeDwt(0, 0, 0);
+            nativeDwtActive = false;
+        }
+
+        [Import(Name = "razer_configure_dwt", Optional = true, UseExceptionWrapper = false)]
+        private Action<ulong, ulong, uint> ConfigureNativeDwt;
+
+        private bool nativeDwtActive;
+        private RazerDwt fastDwt;
         private delegate bool FindAccess(SystemBus bus, ulong address, IPeripheral context, out PeripheralAccessMethods access, out ulong start, out ulong offset, ulong? state);
         private static readonly FindAccess findAccess = (FindAccess)typeof(SystemBus).GetMethod("TryFindPeripheralAccessMethods", BindingFlags.Instance | BindingFlags.NonPublic).CreateDelegate(typeof(FindAccess));
         private readonly IMachine boardMachine;
@@ -132,8 +185,11 @@ namespace Antmicro.Renode.Peripherals.CPU
             if(OnPossessedThread) reportedNativeTotal = ExecutedInstructions;
             base.SyncTime();
         }
+        public bool IsExecutingContinuously => inExecute && ExecutionMode == ExecutionMode.Continuous;
+        public ulong DispatchGeneration { get; private set; }
         public override ExecutionResult ExecuteInstructions(ulong count, out ulong executed)
         {
+            DispatchGeneration++;
             dispatchTime = TimeHandle.TotalElapsedTime;
             dispatchResiduum = getResiduum(this);
             dispatchNativeTotal = ExecutedInstructions;
@@ -143,7 +199,12 @@ namespace Antmicro.Renode.Peripherals.CPU
             dispatchTicksPerQuantum = TimeInterval.TicksPerMicrosecond / gcd;
             inExecute = true;
             try { return base.ExecuteInstructions(count, out executed); }
-            finally { inExecute = false; reportedNativeTotal = ExecutedInstructions; }
+            finally
+            {
+                InvalidateNativeDwt();
+                inExecute = false;
+                reportedNativeTotal = ExecutedInstructions;
+            }
         }
         public override void Reset()
         {
@@ -233,5 +294,70 @@ namespace Antmicro.Renode.Peripherals.CPU
         private TimeInterval dispatchTime;
         private ulong dispatchNativeTotal, dispatchResiduum, dispatchCycleQuantum, dispatchTicksPerQuantum;
         private bool inExecute;
+    }
+}
+
+namespace Antmicro.Renode.Peripherals.Miscellaneous
+{
+    using Antmicro.Renode.Peripherals.CPU;
+
+    // Keep Renode's DWT register model, but avoid synchronizing the machine
+    // clock on every CYCCNT read in a firmware polling loop.
+    public class RazerDwt : DWT
+    {
+        public RazerDwt(IMachine machine, uint frequency) : base(machine, frequency)
+        {
+            this.machine = machine;
+            this.frequency = frequency;
+        }
+
+        internal bool CanAdvanceWith(RazerCortexM cpu) => enabled && HasCpuFrequency(cpu);
+
+        private bool HasCpuFrequency(RazerCortexM cpu) =>
+            cpu.PerformanceInMips * 1000000UL == frequency;
+
+        internal uint ReadCycleCounter(RazerCortexM cpu)
+        {
+            if(!HasCpuFrequency(cpu))
+                return base.ReadDoubleWord(CycleCounter);
+            if(anchorCpu != cpu || anchorDispatch != cpu.DispatchGeneration)
+            {
+                anchorValue = base.ReadDoubleWord(CycleCounter);
+                anchorTime = cpu.CurrentExecutionTime.Ticks;
+                anchorCpu = cpu;
+                anchorDispatch = cpu.DispatchGeneration;
+            }
+            if(!enabled) return anchorValue;
+            var ticks = cpu.CurrentExecutionTime.Ticks - anchorTime;
+            return unchecked(anchorValue + (uint)(ticks * frequency / TimeInterval.TicksPerSecond));
+        }
+
+        public override void WriteDoubleWord(long offset, uint value)
+        {
+            if(offset == Control || offset == CycleCounter)
+            {
+                if(machine.SystemBus.TryGetCurrentCPU(out var cpu)) cpu.SyncTime();
+                anchorCpu?.InvalidateNativeDwt();
+                anchorCpu = null;
+                if(offset == Control) enabled = (value & 1) != 0;
+            }
+            base.WriteDoubleWord(offset, value);
+        }
+
+        public override void Reset()
+        {
+            anchorCpu?.InvalidateNativeDwt();
+            anchorCpu = null;
+            enabled = false;
+            base.Reset();
+        }
+
+        private const long Control = 0, CycleCounter = 4;
+        private readonly IMachine machine;
+        private readonly uint frequency;
+        private RazerCortexM anchorCpu;
+        private ulong anchorDispatch, anchorTime;
+        private uint anchorValue;
+        private bool enabled;
     }
 }
