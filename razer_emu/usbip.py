@@ -126,7 +126,8 @@ class UsbIpServer:
                 writer.write(struct.pack("!HHII", VERSION, 5, 0, 1))
                 writer.write(self._device_record() + b"".join(self.interfaces))
             elif operation == 0x8003:
-                busid = (await reader.readexactly(32)).rstrip(b"\0")
+                # Clients may leave bytes after the C string terminator unset.
+                busid = (await reader.readexactly(32)).split(b"\0", 1)[0]
                 if busid != BUSID or self._imported:
                     writer.write(struct.pack("!HHI", VERSION, 3, 1))
                 else:

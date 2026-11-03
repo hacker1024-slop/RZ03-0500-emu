@@ -59,11 +59,11 @@ async def _reply(reader):
     return command, sequence, status, data
 
 
-async def _connect(port, operation=0x8003):
+async def _connect(port, operation=0x8003, *, busid=b"1-1\0"):
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
     writer.write(struct.pack("!HHI", 0x111, operation, 0))
     if operation == 0x8003:
-        writer.write(b"1-1".ljust(32, b"\0"))
+        writer.write(busid.ljust(32, b"\0"))
     await writer.drain()
     return reader, writer
 
@@ -82,7 +82,8 @@ def test_wire_listing_import_transfers_unlink_and_fragmented_out():
             assert struct.unpack_from("!HHII", listing) == (0x111, 5, 0, 1)
             assert len(listing) == 12 + 312 + 4
             assert struct.unpack_from("!HH", listing, 12 + 300) == (0x1532, 0x02A5)
-            reader, writer = await _connect(port)
+            # VirtualBox can leave nonzero padding after the bus ID terminator.
+            reader, writer = await _connect(port, busid=b"1-1\0" + b"X" * 28)
             writers.append(writer)
             assert struct.unpack("!HHI", await reader.readexactly(8)) == (0x111, 3, 0)
             await reader.readexactly(312)
