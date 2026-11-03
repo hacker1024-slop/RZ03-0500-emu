@@ -8,6 +8,7 @@ import asyncio
 import errno
 import logging
 import struct
+import time
 from dataclasses import dataclass
 
 from .usb import SetupPacket, UsbError, UsbStall, UsbTimeout
@@ -35,9 +36,10 @@ class UsbIpServer:
     All returned USB data originate in firmware.
     """
 
-    def __init__(self, keyboard, enumeration):
+    def __init__(self, keyboard, enumeration, *, pace=None):
         self.keyboard = keyboard
         self.host = keyboard.usb
+        self._pace = pace
         self.enumeration = enumeration
         self.interfaces = []
         self.endpoints = {}
@@ -129,11 +131,16 @@ class UsbIpServer:
                     writer.write(struct.pack("!HHI", VERSION, 3, 1))
                 else:
                     self._imported = imported = True
+                    if self._pace is not None:
+                        started = time.monotonic()
+                        before = self.keyboard.state().elapsed_us
                     self.host.reset_bus()
                     # VHCI handles SET_ADDRESS locally: the exported device
                     # must already have its own server-side USB address.
                     self.host.control(SetupPacket(0, 5, value=1))
                     self.keyboard.run_for(2000)
+                    if self._pace is not None:
+                        await self._pace(started, before, self.keyboard.state().elapsed_us)
                     writer.write(
                         struct.pack("!HHI", VERSION, 3, 0) + self._device_record()
                     )
@@ -200,6 +207,9 @@ class UsbIpServer:
         receive = asyncio.create_task(self._read_request(reader))
         try:
             while True:
+                if self._pace is not None:
+                    started = time.monotonic()
+                    before = self.keyboard.state().elapsed_us
                 if receive.done():
                     raw, payload = receive.result()
                     command, sequence, device, direction, endpoint = struct.unpack_from(
@@ -327,6 +337,8 @@ class UsbIpServer:
                     self.host._check()
                 if pump is not None and not self.keyboard._usb_device.Connected:
                     raise UsbError("Virtual USB device is disconnected")
+                if self._pace is not None:
+                    await self._pace(started, before, self.keyboard.state().elapsed_us)
                 # Yield to sockets and cancellation even with continuous NAKs.
                 await asyncio.sleep(0)
         finally:

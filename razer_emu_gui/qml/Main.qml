@@ -70,6 +70,11 @@ ApplicationWindow {
         RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
+            CheckBox {
+                text: "Limit to 1×"
+                checked: emulator.limitSpeed
+                onToggled: emulator.setLimitSpeed(checked)
+            }
             Button { text: "USB/IP…"; onClicked: usbipDialog.open() }
             Button { text: "Load firmware"; onClicked: loadMenu.popup() }
             Button { enabled: !emulator.usbipMode && (emulator.running || emulator.status === "Paused"); text: emulator.running ? "Pause" : "Resume"; onClicked: emulator.toggleRunning() }

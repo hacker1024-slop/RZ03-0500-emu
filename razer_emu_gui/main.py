@@ -53,6 +53,20 @@ class EmulatorBridge(QObject):
         return self.layout["height"]
 
     @Property(bool, notify=changed)
+    def limitSpeed(self):
+        return self.configuration.get("limit_speed", True)
+
+    @Slot(bool)
+    def setLimitSpeed(self, enabled):
+        if enabled == self.limitSpeed:
+            return
+        self.configuration["limit_speed"] = enabled
+        self._speed_samples.clear()
+        self._speed = "—"
+        self._send({"type": "limit_speed", "enabled": enabled})
+        self.changed.emit()
+
+    @Property(bool, notify=changed)
     def usbipMode(self):
         return bool(self.configuration.get("usbip"))
 

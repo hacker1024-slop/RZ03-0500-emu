@@ -100,6 +100,11 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
             volume = (0x82, f"02{usage}" + "00" * 20)
             wait_until(lambda: volume in reports)
         assert len(bridge.colors) == 83
+        assert bridge.limitSpeed
+        bridge.setLimitSpeed(False)
+        assert not bridge.limitSpeed
+        bridge.setLimitSpeed(True)
+        assert bridge.limitSpeed
         bridge.toggleRunning()
         wait_until(lambda: not bridge.running)
         assert not bridge.pressed
@@ -135,6 +140,11 @@ def test_qml_mouse_click_produces_firmware_press_and_release(request, monkeypatc
             with guest.makefile("rb") as response:
                 assert response.read(8) == struct.pack("!HHI", 0x0111, 3, 0)
                 assert len(response.read(struct.calcsize("!256s32sIIIHHHBBBBBB"))) == 312
+                QTest.qWait(150)
+                started = time.monotonic()
+                before = virtual_seconds()
+                wait_until(lambda: virtual_seconds() >= before + 0.2)
+                assert virtual_seconds() - before <= time.monotonic() - started + 0.06
                 bridge.reset()
                 wait_until(lambda: bool(select.select([guest], [], [], 0)[0]))
                 assert response.read(1) == b""

@@ -83,7 +83,23 @@ async def run(configuration):
         chips = [keyboard.attach_lighting(c["bus"], c["address"]) for c in layout["controllers"]]
         enumeration = keyboard.usb.enumerate_device()
         exported = configuration.get("usbip")
+        limit_speed = configuration.get("limit_speed", True)
         pump = None
+        pace_deadline = None
+
+        async def pace(started, before, after):
+            nonlocal pace_deadline
+            if not limit_speed or after == before:
+                return
+            # Carry ordinary timer overshoot into the next batch. Rebase after
+            # a longer gap so idle time cannot accumulate as speed credit.
+            if pace_deadline is None or started - pace_deadline > 0.010:
+                pace_deadline = started
+            pace_deadline += (after - before) / 1_000_000
+            delay = pace_deadline - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+
         endpoints = {
             address: (size, interval) for address, size, interval in enumeration.interrupt_inputs
         }
@@ -99,7 +115,7 @@ async def run(configuration):
         def start_export():
             from razer_emu.usbip import UsbIpServer
 
-            server = UsbIpServer(keyboard, enumeration)
+            server = UsbIpServer(keyboard, enumeration, pace=pace)
             return server, asyncio.create_task(server.serve(port=exported))
 
         async def stop_export():
@@ -151,6 +167,7 @@ async def run(configuration):
                     await stop_export()
                     return
                 if kind == "reset":
+                    pace_deadline = None
                     await stop_export()
                     release_all()
                     clear_wheel()
@@ -162,8 +179,12 @@ async def run(configuration):
                         pump = start_polling()
                     report = ""
                     running = True
+                elif kind == "limit_speed":
+                    limit_speed = command["enabled"]
+                    pace_deadline = None
                 elif kind == "running" and not exported:
                     running = bool(command["value"])
+                    pace_deadline = None
                     if not running:
                         release_all()
                         clear_wheel()
@@ -206,7 +227,12 @@ async def run(configuration):
                 if guest_attached:
                     state = keyboard.state()
                 else:
+                    if limit_speed:
+                        started = time.monotonic()
+                        before = keyboard.state().elapsed_us
                     state = keyboard.run_for(5000, _usb_pump=pump)
+                    if limit_speed:
+                        await pace(started, before, state.elapsed_us)
                 if state.stopped_reason:
                     raise RuntimeError(
                         state.stopped_reason + ": " + "; ".join(keyboard.logs()[-5:])
