@@ -20,6 +20,7 @@ from .layout import load_layout
 
 class EmulatorBridge(QObject):
     changed = Signal()
+    colorsChanged = Signal()
     usbReport = Signal(int, str)
 
     def __init__(self, configuration):
@@ -92,7 +93,7 @@ class EmulatorBridge(QObject):
     def wheelRegion(self):
         return self.layout["wheel"]
 
-    @Property("QVariantMap", notify=changed)
+    @Property("QVariantMap", notify=colorsChanged)
     def colors(self):
         return self._colors
 
@@ -176,7 +177,9 @@ class EmulatorBridge(QObject):
             return
         self.close()
         self._buffer = b""
-        self._colors = {}
+        if self._colors:
+            self._colors = {}
+            self.colorsChanged.emit()
         self._pressed = []
         self._running = False
         self._virtual = "0.000 s"
@@ -230,8 +233,11 @@ class EmulatorBridge(QObject):
                 self._speed_samples.clear()
             elif message["type"] == "report":
                 self.usbReport.emit(message["endpoint"], message["data"])
-            elif message["type"] == "frame":
+            elif message["type"] == "colors":
                 self._colors = message["colors"]
+                self.colorsChanged.emit()
+                continue
+            elif message["type"] == "frame":
                 self._pressed = message["pressed"]
                 self._running = message["running"]
                 self._virtual = f"{message['virtual_us'] / 1_000_000:.3f} s"

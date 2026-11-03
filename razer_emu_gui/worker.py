@@ -18,6 +18,7 @@ from .layout import key_colors, load_layout
 # Start and end at idle. The firmware samples each phase for 5 ms.
 WHEEL_DOWN = ((True, False), (False, False), (False, True), (True, True))
 WHEEL_UP = tuple(reversed(WHEEL_DOWN[:-1])) + (WHEEL_DOWN[-1],)
+LED_INTERVAL = 1 / 60
 WHEEL_PHASE_US = 5000
 MAX_WHEEL_PHASES = 128
 
@@ -136,6 +137,8 @@ async def run(configuration):
         running = True
         report = ""
         last_frame = 0.0
+        next_led_sample = 0.0
+        last_lighting = last_colors = None
         state = keyboard.state()
 
         def contact(index, pressed):
@@ -267,6 +270,20 @@ async def run(configuration):
             else:
                 time.sleep(0.01)
             now = time.monotonic()
+            if now >= next_led_sample:
+                # Keep the cadence across emulation batches and skip missed samples.
+                next_led_sample = (
+                    next_led_sample + LED_INTERVAL
+                    if now - next_led_sample < LED_INTERVAL
+                    else now + LED_INTERVAL
+                )
+                lighting = tuple(chip.state() for chip in chips)
+                if lighting != last_lighting:
+                    last_lighting = lighting
+                    colors = key_colors(layout, lighting)
+                    if colors != last_colors:
+                        emit({"type": "colors", "colors": colors})
+                        last_colors = colors
             if now - last_frame >= 0.05:
                 emit(
                     {
@@ -275,7 +292,6 @@ async def run(configuration):
                         "bootloader_mode": bootloader_mode,
                         "virtual_us": state.elapsed_us,
                         "wall_seconds": now,
-                        "colors": key_colors(layout, [c.state() for c in chips]),
                         "pressed": list(held),
                         "report": report,
                     }
