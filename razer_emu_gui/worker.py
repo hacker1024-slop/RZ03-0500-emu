@@ -139,7 +139,6 @@ async def run(configuration):
         last_frame = 0.0
         next_led_sample = 0.0
         last_lighting = last_colors = None
-        state = keyboard.state()
         reset_generation = keyboard.reset_generation
 
         def contact(index, pressed):
@@ -257,9 +256,7 @@ async def run(configuration):
                         next_phase = elapsed + WHEEL_PHASE_US
                 # An attached guest drives execution through USB/IP transfers.
                 # While waiting for a guest, advance firmware without polling USB.
-                if guest_attached:
-                    state = keyboard.state()
-                else:
+                if not guest_attached:
                     if limit_speed:
                         started = time.monotonic()
                         before = keyboard.elapsed_us
@@ -268,7 +265,7 @@ async def run(configuration):
                         await pace(started, before, state.elapsed_us)
                 if reset_generation != keyboard.reset_generation:
                     continue
-                if state.stopped_reason:
+                if not guest_attached and state.stopped_reason:
                     raise RuntimeError(
                         state.stopped_reason + ": " + "; ".join(keyboard.logs()[-5:])
                     )
@@ -286,7 +283,7 @@ async def run(configuration):
                     size, interval = endpoints[endpoint]
                     pump.Add(endpoint, endpoint & 15, size, 0, size, interval)
                 for index, due in list(releases.items()):
-                    if state.elapsed_us >= due:
+                    if keyboard.elapsed_us >= due:
                         contact(index, False)
                         del held[index]
                         del releases[index]
@@ -313,14 +310,14 @@ async def run(configuration):
                         "type": "frame",
                         "running": running,
                         "bootloader_mode": bootloader_mode,
-                        "virtual_us": state.elapsed_us,
+                        "virtual_us": keyboard.elapsed_us,
                         "wall_seconds": now,
                         "pressed": list(held),
                         "report": report,
                     }
                 )
                 last_frame = now
-            await asyncio.sleep(0.005 if guest_attached else 0)
+            await asyncio.sleep(0.001 if guest_attached else 0)
 
 
 def main():
